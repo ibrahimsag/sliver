@@ -3,11 +3,12 @@
 #include <stdbool.h>
 #include <math.h>
 
-#define WINDOW_WIDTH 1200
-#define WINDOW_HEIGHT 900
-#define BOUNDING_SIZE 600
-#define CORNER_RADIUS 20
-#define HIGHLIGHT_SIZE 8
+#define WINDOW_WIDTH 1920
+#define WINDOW_HEIGHT 1080
+#define BOUNDING_SIZE 900
+#define BOUNDING_PADDING 50
+#define CORNER_RADIUS 30
+#define HIGHLIGHT_SIZE 12
 #define MAX_SQUARES 30
 
 // Vector 2D struct and operations
@@ -26,10 +27,19 @@ typedef struct {
     V2 start, end;
 } Diagonal;
 
+typedef enum {
+    KIND_UNIT = 0,      // Sequence 1: unit squares
+    KIND_OFFSET = 1,    // Sequence 2: offset squares
+    KIND_HALF = 2,      // Sequence 3: half-unit squares
+    KIND_LARGE = 3,     // Sequence 4: large square
+    KIND_COUNT = 4
+} SquareKind;
+
 typedef struct {
     float t_start;    // start position along diagonal [0,1]
     float t_end;      // end position along diagonal [0,1]
     SDL_Color color;
+    SquareKind kind;
 } Square;
 
 typedef enum {
@@ -49,6 +59,7 @@ typedef struct {
     Diagonal diagonal;
     Square squares[MAX_SQUARES];
     int num_squares;
+    SquareKind selected_kind;
     bool running;
 } AppState;
 
@@ -102,15 +113,88 @@ void draw_line(SDL_Renderer* renderer, V2 p1, V2 p2) {
     SDL_RenderDrawLine(renderer, p1.x, p1.y, p2.x, p2.y);
 }
 
-void draw_square(SDL_Renderer* renderer, V2 p1, V2 p2) {
+void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius) {
+    // Draw rounded rectangle using lines
+    int segments = 8;
+    
+    // Draw four corners with correct positioning
+    // Top-left corner (180 to 270 degrees)
+    float cx = x + radius;
+    float cy = y + radius;
+    for (int i = 0; i < segments; i++) {
+        float angle1 = M_PI + (M_PI / 2) * i / segments;
+        float angle2 = M_PI + (M_PI / 2) * (i + 1) / segments;
+        SDL_RenderDrawLine(renderer,
+                          cx + radius * cosf(angle1),
+                          cy + radius * sinf(angle1),
+                          cx + radius * cosf(angle2),
+                          cy + radius * sinf(angle2));
+    }
+    
+    // Top-right corner (270 to 360 degrees)
+    cx = x + w - radius;
+    cy = y + radius;
+    for (int i = 0; i < segments; i++) {
+        float angle1 = 3 * M_PI / 2 + (M_PI / 2) * i / segments;
+        float angle2 = 3 * M_PI / 2 + (M_PI / 2) * (i + 1) / segments;
+        SDL_RenderDrawLine(renderer,
+                          cx + radius * cosf(angle1),
+                          cy + radius * sinf(angle1),
+                          cx + radius * cosf(angle2),
+                          cy + radius * sinf(angle2));
+    }
+    
+    // Bottom-right corner (0 to 90 degrees)
+    cx = x + w - radius;
+    cy = y + h - radius;
+    for (int i = 0; i < segments; i++) {
+        float angle1 = (M_PI / 2) * i / segments;
+        float angle2 = (M_PI / 2) * (i + 1) / segments;
+        SDL_RenderDrawLine(renderer,
+                          cx + radius * cosf(angle1),
+                          cy + radius * sinf(angle1),
+                          cx + radius * cosf(angle2),
+                          cy + radius * sinf(angle2));
+    }
+    
+    // Bottom-left corner (90 to 180 degrees)
+    cx = x + radius;
+    cy = y + h - radius;
+    for (int i = 0; i < segments; i++) {
+        float angle1 = M_PI / 2 + (M_PI / 2) * i / segments;
+        float angle2 = M_PI / 2 + (M_PI / 2) * (i + 1) / segments;
+        SDL_RenderDrawLine(renderer,
+                          cx + radius * cosf(angle1),
+                          cy + radius * sinf(angle1),
+                          cx + radius * cosf(angle2),
+                          cy + radius * sinf(angle2));
+    }
+    
+    // Draw straight edges
+    SDL_RenderDrawLine(renderer, x + radius, y, x + w - radius, y);  // Top
+    SDL_RenderDrawLine(renderer, x + radius, y + h, x + w - radius, y + h);  // Bottom
+    SDL_RenderDrawLine(renderer, x, y + radius, x, y + h - radius);  // Left
+    SDL_RenderDrawLine(renderer, x + w, y + radius, x + w, y + h - radius);  // Right
+}
+
+void draw_square(SDL_Renderer* renderer, V2 p1, V2 p2, bool rounded) {
     // Draw axis-aligned square given diagonal endpoints
     float min_x = fminf(p1.x, p2.x);
     float max_x = fmaxf(p1.x, p2.x);
     float min_y = fminf(p1.y, p2.y);
     float max_y = fmaxf(p1.y, p2.y);
     
-    SDL_Rect rect = {(int)min_x, (int)min_y, (int)(max_x - min_x), (int)(max_y - min_y)};
-    SDL_RenderDrawRect(renderer, &rect);
+    if (rounded) {
+        float radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
+        // The 45° point on the arc is inset by r*(1-1/√2) from the corner
+        // So we need to extend the rectangle by this amount to make arcs meet at diagonal points
+        float extend = radius * (1.0f - 1.0f/sqrtf(2));
+        draw_rounded_rect(renderer, min_x - extend, min_y - extend, 
+                         (max_x - min_x) + 2 * extend, (max_y - min_y) + 2 * extend, radius);
+    } else {
+        SDL_Rect rect = {(int)min_x, (int)min_y, (int)(max_x - min_x), (int)(max_y - min_y)};
+        SDL_RenderDrawRect(renderer, &rect);
+    }
 }
 
 void draw_circle(SDL_Renderer* renderer, V2 center, float radius) {
@@ -173,7 +257,7 @@ void render(AppState* state) {
             V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, sq->t_end);
             
             SDL_SetRenderDrawColor(state->renderer, sq->color.r, sq->color.g, sq->color.b, sq->color.a);
-            draw_square(state->renderer, p1, p2);
+            draw_square(state->renderer, p1, p2, sq->kind == state->selected_kind);
         }
     }
     
@@ -208,6 +292,7 @@ void init_squares(AppState* state) {
         state->squares[idx].t_start = i / 10.0f;
         state->squares[idx].t_end = (i + 1) / 10.0f;
         state->squares[idx].color = (SDL_Color){60, 60, 60, 255};  // Dark gray
+        state->squares[idx].kind = KIND_UNIT;
         idx++;
     }
     
@@ -216,6 +301,7 @@ void init_squares(AppState* state) {
         state->squares[idx].t_start = (i + 0.3f) / 10.0f;
         state->squares[idx].t_end = (i + 1.3f) / 10.0f;
         state->squares[idx].color = (SDL_Color){100, 150, 200, 255};  // Blue
+        state->squares[idx].kind = KIND_OFFSET;
         idx++;
     }
     
@@ -224,6 +310,7 @@ void init_squares(AppState* state) {
         state->squares[idx].t_start = (i + 0.2f) / 10.0f;
         state->squares[idx].t_end = (i + 0.7f) / 10.0f;
         state->squares[idx].color = (SDL_Color){200, 150, 100, 255};  // Orange
+        state->squares[idx].kind = KIND_HALF;
         idx++;
     }
     
@@ -231,6 +318,7 @@ void init_squares(AppState* state) {
     state->squares[idx].t_start = 6.6f / 10.0f;
     state->squares[idx].t_end = 8.7f / 10.0f;
     state->squares[idx].color = (SDL_Color){150, 200, 150, 255};  // Green
+    state->squares[idx].kind = KIND_LARGE;
     idx++;
     
     state->num_squares = idx;
@@ -244,9 +332,10 @@ int main(int argc, char* argv[]) {
     
     AppState state = {0};
     state.running = true;
-    state.selected_corner = CORNER_BR;  // Start with top-left selected
+    state.selected_corner = CORNER_BR;  // Start with bottom-right selected
+    state.selected_kind = KIND_UNIT;    // Start with unit squares selected
     state.bounding_center = (V2){WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2};
-    state.bounding_half = BOUNDING_SIZE / 2;
+    state.bounding_half = (BOUNDING_SIZE - BOUNDING_PADDING) / 2;
     
     // Create window with HiDPI support (from ../sd) 
     state.window = SDL_CreateWindow("Squares on Diagonal",
@@ -302,6 +391,22 @@ int main(int argc, char* argv[]) {
                         case SDLK_ESCAPE:
                         case SDLK_q:
                             state.running = false;
+                            break;
+                        case SDLK_f:
+                        case SDLK_F11:
+                            // Toggle fullscreen
+                            {
+                                Uint32 flags = SDL_GetWindowFlags(state.window);
+                                if (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) {
+                                    SDL_SetWindowFullscreen(state.window, 0);
+                                } else {
+                                    SDL_SetWindowFullscreen(state.window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+                                }
+                            }
+                            break;
+                        case SDLK_TAB:
+                            // Cycle through square kinds
+                            state.selected_kind = (state.selected_kind + 1) % KIND_COUNT;
                             break;
                         case SDLK_SPACE:
                             // Reset to original square definitions
