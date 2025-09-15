@@ -3,12 +3,12 @@
 #include <stdbool.h>
 #include <math.h>
 
-#define WINDOW_WIDTH 800
-#define WINDOW_HEIGHT 600
-#define BOUNDING_SIZE 400
+#define WINDOW_WIDTH 1200
+#define WINDOW_HEIGHT 900
+#define BOUNDING_SIZE 600
 #define CORNER_RADIUS 20
 #define HIGHLIGHT_SIZE 8
-#define MAX_SQUARES 10
+#define MAX_SQUARES 30
 
 // Vector 2D struct and operations
 typedef struct {
@@ -27,8 +27,8 @@ typedef struct {
 } Diagonal;
 
 typedef struct {
-    float t;          // position along diagonal [0,1]
-    float size;       // size factor [0,1]
+    float t_start;    // start position along diagonal [0,1]
+    float t_end;      // end position along diagonal [0,1]
     SDL_Color color;
 } Square;
 
@@ -162,19 +162,15 @@ void render(AppState* state) {
         // Draw orientation edge from selected corner
         V2 selected = get_corner_position(state, state->selected_corner);
         SDL_SetRenderDrawColor(state->renderer, 255, 100, 100, 255);
-        draw_line(state->renderer, selected, state->diagonal.start);
+        draw_line(state->renderer, selected, state->diagonal.end);
         
         // Draw squares along diagonal
-        SDL_SetRenderDrawColor(state->renderer, 100, 255, 100, 255);
         for (int i = 0; i < state->num_squares; i++) {
             Square* sq = &state->squares[i];
-            V2 center = v2_lerp(state->diagonal.start, state->diagonal.end, sq->t);
-            float half_diag = sq->size * v2_dist(state->diagonal.start, state->diagonal.end) / 2;
             
-            // For 45-degree diagonal, offset is same in x and y
-            float offset = half_diag / sqrtf(2);
-            V2 p1 = (V2){center.x - offset, center.y - offset};
-            V2 p2 = (V2){center.x + offset, center.y + offset};
+            // Get the two diagonal endpoints for this square
+            V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, sq->t_start);
+            V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, sq->t_end);
             
             SDL_SetRenderDrawColor(state->renderer, sq->color.r, sq->color.g, sq->color.b, sq->color.a);
             draw_square(state->renderer, p1, p2);
@@ -205,18 +201,39 @@ void handle_mouse_click(AppState* state, int x, int y) {
 }
 
 void init_squares(AppState* state) {
-    // Initialize some example squares
-    state->num_squares = 5;
-    for (int i = 0; i < state->num_squares; i++) {
-        state->squares[i].t = (float)i / (state->num_squares - 1);
-        state->squares[i].size = 0.1f + 0.15f * (1.0f - fabsf(state->squares[i].t - 0.5f) * 2);
-        state->squares[i].color = (SDL_Color){
-            100 + i * 30,
-            200 - i * 20,
-            150 + i * 20,
-            255
-        };
+    int idx = 0;
+    
+    // Sequence 1: 11 unit squares (0-1, 1-2, ..., 9-10) in dark gray
+    for (int i = 0; i < 10; i++) {
+        state->squares[idx].t_start = i / 10.0f;
+        state->squares[idx].t_end = (i + 1) / 10.0f;
+        state->squares[idx].color = (SDL_Color){60, 60, 60, 255};  // Dark gray
+        idx++;
     }
+    
+    // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
+    for (int i = 0; i < 8; i++) {
+        state->squares[idx].t_start = (i + 0.3f) / 10.0f;
+        state->squares[idx].t_end = (i + 1.3f) / 10.0f;
+        state->squares[idx].color = (SDL_Color){100, 150, 200, 255};  // Blue
+        idx++;
+    }
+    
+    // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
+    for (int i = 0; i < 5; i++) {
+        state->squares[idx].t_start = (i + 0.2f) / 10.0f;
+        state->squares[idx].t_end = (i + 0.7f) / 10.0f;
+        state->squares[idx].color = (SDL_Color){200, 150, 100, 255};  // Orange
+        idx++;
+    }
+    
+    // Sequence 4: single square at 6.6-8.7
+    state->squares[idx].t_start = 6.6f / 10.0f;
+    state->squares[idx].t_end = 8.7f / 10.0f;
+    state->squares[idx].color = (SDL_Color){150, 200, 150, 255};  // Green
+    idx++;
+    
+    state->num_squares = idx;
 }
 
 int main(int argc, char* argv[]) {
@@ -227,7 +244,7 @@ int main(int argc, char* argv[]) {
     
     AppState state = {0};
     state.running = true;
-    state.selected_corner = CORNER_TL;  // Start with top-left selected
+    state.selected_corner = CORNER_BR;  // Start with top-left selected
     state.bounding_center = (V2){WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2};
     state.bounding_half = BOUNDING_SIZE / 2;
     
@@ -287,10 +304,8 @@ int main(int argc, char* argv[]) {
                             state.running = false;
                             break;
                         case SDLK_SPACE:
-                            // Randomize square positions
-                            for (int i = 0; i < state.num_squares; i++) {
-                                state.squares[i].t = (float)rand() / RAND_MAX;
-                            }
+                            // Reset to original square definitions
+                            init_squares(&state);
                             break;
                         case SDLK_r:
                             // Reset squares
