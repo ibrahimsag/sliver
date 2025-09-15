@@ -60,6 +60,10 @@ typedef struct {
     Square squares[MAX_SQUARES];
     int num_squares;
     SquareKind selected_kind;
+    SquareKind previous_kind;  // For exit animation
+    float radius_animation;  // 0 to 1 animation progress
+    Uint32 animation_start_time;
+    bool animating;
     bool running;
 } AppState;
 
@@ -109,13 +113,29 @@ void calculate_diagonal(AppState* state) {
     }
 }
 
+// Bounce easing function - creates a bouncing effect at the end
+float ease_out_bounce(float t) {
+    if (t < 1 / 2.75f) {
+        return 7.5625f * t * t;
+    } else if (t < 2 / 2.75f) {
+        t -= 1.5f / 2.75f;
+        return 7.5625f * t * t + 0.75f;
+    } else if (t < 2.5 / 2.75f) {
+        t -= 2.25f / 2.75f;
+        return 7.5625f * t * t + 0.9375f;
+    } else {
+        t -= 2.625f / 2.75f;
+        return 7.5625f * t * t + 0.984375f;
+    }
+}
+
 void draw_line(SDL_Renderer* renderer, V2 p1, V2 p2) {
     SDL_RenderDrawLine(renderer, p1.x, p1.y, p2.x, p2.y);
 }
 
 void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius) {
     // Draw rounded rectangle using lines
-    int segments = 8;
+    int segments = 32;
     
     // Draw four corners with correct positioning
     // Top-left corner (180 to 270 degrees)
@@ -177,7 +197,7 @@ void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float 
     SDL_RenderDrawLine(renderer, x + w, y + radius, x + w, y + h - radius);  // Right
 }
 
-void draw_square(SDL_Renderer* renderer, V2 p1, V2 p2, bool rounded) {
+void draw_square(SDL_Renderer* renderer, V2 p1, V2 p2, bool rounded, float animated_radius_factor) {
     // Draw axis-aligned square given diagonal endpoints
     float min_x = fminf(p1.x, p2.x);
     float max_x = fmaxf(p1.x, p2.x);
@@ -185,7 +205,8 @@ void draw_square(SDL_Renderer* renderer, V2 p1, V2 p2, bool rounded) {
     float max_y = fmaxf(p1.y, p2.y);
     
     if (rounded) {
-        float radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
+        float base_radius = fminf(30.0f, fminf(max_x - min_x, max_y - min_y) * 0.5f);
+        float radius = base_radius * animated_radius_factor;
         // The 45° point on the arc is inset by r*(1-1/√2) from the corner
         // So we need to extend the rectangle by this amount to make arcs meet at diagonal points
         float extend = radius * (1.0f - 1.0f/sqrtf(2));
@@ -216,15 +237,15 @@ void render(AppState* state) {
     SDL_RenderClear(state->renderer);
     
     // Draw bounding square outline
-    SDL_SetRenderDrawColor(state->renderer, 100, 100, 100, 255);
-    V2 tl = get_corner_position(state, CORNER_TL);
-    V2 tr = get_corner_position(state, CORNER_TR);
-    V2 br = get_corner_position(state, CORNER_BR);
-    V2 bl = get_corner_position(state, CORNER_BL);
-    draw_line(state->renderer, tl, tr);
-    draw_line(state->renderer, tr, br);
-    draw_line(state->renderer, br, bl);
-    draw_line(state->renderer, bl, tl);
+    // SDL_SetRenderDrawColor(state->renderer, 100, 100, 100, 255);
+    // V2 tl = get_corner_position(state, CORNER_TL);
+    // V2 tr = get_corner_position(state, CORNER_TR);
+    // V2 br = get_corner_position(state, CORNER_BR);
+    // V2 bl = get_corner_position(state, CORNER_BL);
+    // draw_line(state->renderer, tl, tr);
+    // draw_line(state->renderer, tr, br);
+    // draw_line(state->renderer, br, bl);
+    // draw_line(state->renderer, bl, tl);
     
     // Draw corner indicators
     for (int i = 0; i < 4; i++) {
@@ -243,11 +264,6 @@ void render(AppState* state) {
         SDL_SetRenderDrawColor(state->renderer, 200, 200, 255, 255);
         draw_line(state->renderer, state->diagonal.start, state->diagonal.end);
         
-        // Draw orientation edge from selected corner
-        V2 selected = get_corner_position(state, state->selected_corner);
-        SDL_SetRenderDrawColor(state->renderer, 255, 100, 100, 255);
-        draw_line(state->renderer, selected, state->diagonal.end);
-        
         // Draw squares along diagonal
         for (int i = 0; i < state->num_squares; i++) {
             Square* sq = &state->squares[i];
@@ -257,8 +273,26 @@ void render(AppState* state) {
             V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, sq->t_end);
             
             SDL_SetRenderDrawColor(state->renderer, sq->color.r, sq->color.g, sq->color.b, sq->color.a);
-            draw_square(state->renderer, p1, p2, sq->kind == state->selected_kind);
+            
+            // Animate both entering and exiting kinds
+            bool should_round = false;
+            float radius_factor = 1.0f;
+            
+            if (sq->kind == state->selected_kind) {
+                should_round = true;
+                radius_factor = state->radius_animation;  // Animating in
+            } else if (state->animating && sq->kind == state->previous_kind) {
+                should_round = true;
+                radius_factor = 1.0f - state->radius_animation;  // Animating out
+            }
+            
+            draw_square(state->renderer, p1, p2, should_round, radius_factor);
         }
+        
+        // Draw orientation edge from selected corner
+        V2 selected = get_corner_position(state, state->selected_corner);
+        SDL_SetRenderDrawColor(state->renderer, 255, 100, 100, 255);
+        draw_line(state->renderer, selected, state->diagonal.end);
     }
     
     SDL_RenderPresent(state->renderer);
@@ -297,7 +331,7 @@ void init_squares(AppState* state) {
     }
     
     // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 9; i++) {
         state->squares[idx].t_start = (i + 0.3f) / 10.0f;
         state->squares[idx].t_end = (i + 1.3f) / 10.0f;
         state->squares[idx].color = (SDL_Color){100, 150, 200, 255};  // Blue
@@ -324,6 +358,12 @@ void init_squares(AppState* state) {
     state->num_squares = idx;
 }
 
+void start_animation(AppState* state) {
+    state->animating = true;
+    state->animation_start_time = SDL_GetTicks();
+    state->radius_animation = 0.0f;
+}
+
 int main(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
@@ -334,6 +374,7 @@ int main(int argc, char* argv[]) {
     state.running = true;
     state.selected_corner = CORNER_BR;  // Start with bottom-right selected
     state.selected_kind = KIND_UNIT;    // Start with unit squares selected
+    state.previous_kind = KIND_UNIT;    // Initialize previous kind
     state.bounding_center = (V2){WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2};
     state.bounding_half = (BOUNDING_SIZE - BOUNDING_PADDING) / 2;
     
@@ -371,6 +412,7 @@ int main(int argc, char* argv[]) {
     
     calculate_diagonal(&state);
     init_squares(&state);
+    start_animation(&state);  // Start initial animation
     
     SDL_Event event;
     while (state.running) {
@@ -405,8 +447,10 @@ int main(int argc, char* argv[]) {
                             }
                             break;
                         case SDLK_TAB:
-                            // Cycle through square kinds
+                            // Cycle through square kinds and trigger animation
+                            state.previous_kind = state.selected_kind;
                             state.selected_kind = (state.selected_kind + 1) % KIND_COUNT;
+                            start_animation(&state);
                             break;
                         case SDLK_SPACE:
                             // Reset to original square definitions
@@ -418,6 +462,27 @@ int main(int argc, char* argv[]) {
                             break;
                     }
                     break;
+            }
+        }
+        
+        // Update animation
+        if (state.animating) {
+            Uint32 current_time = SDL_GetTicks();
+            float elapsed = (current_time - state.animation_start_time) / 1000.0f;  // Convert to seconds
+            float animation_duration = 1.0f;  // 1 second animation
+            
+            if (elapsed >= animation_duration) {
+                state.radius_animation = 1.0f;
+                state.animating = false;
+                
+                // Automatically cycle to next kind after a short delay
+                SDL_Delay(500);  // 500ms pause between animations
+                state.previous_kind = state.selected_kind;
+                state.selected_kind = (state.selected_kind + 1) % KIND_COUNT;
+                start_animation(&state);
+            } else {
+                float t = elapsed / animation_duration;
+                state.radius_animation = ease_out_bounce(t);
             }
         }
         
