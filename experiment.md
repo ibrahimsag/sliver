@@ -1,0 +1,121 @@
+# Squares on Shared Diagonal Experiment
+
+## Concept
+Drawing multiple axis-aligned squares that all share a common diagonal at 45 degrees using C and SDL2.
+
+## Constraints
+- All squares are axis-aligned (edges parallel to x/y axes)
+- The shared diagonal is always at 45° angle
+- Squares can be positioned at different points along the diagonal
+- Squares can have different sizes
+
+## Mathematical Foundation
+
+### Constants
+- `CORNER_RADIUS`: Detection radius for corner selection (e.g., 20 pixels)
+- `BOUNDING_SIZE`: Size of the large bounding square (e.g., 400 pixels)
+- `HIGHLIGHT_SIZE`: Size of corner indicator circles (e.g., 8 pixels)
+
+### Diagonal Definition via Triangle Selection
+- Large bounding square defines the space (e.g., 400x400 pixels centered on screen)
+- Clicking within a small radius (e.g., 20 pixels) of a corner selects that corner
+- Each corner defines a unique triangle with the clicked corner as the last vertex (CCW order):
+  - **Top-left corner**: Triangle with vertices (BL, TR, TL) → diagonal from BL to TR
+  - **Top-right corner**: Triangle with vertices (TL, BR, TR) → diagonal from TL to BR  
+  - **Bottom-right corner**: Triangle with vertices (TR, BL, BR) → diagonal from TR to BL
+  - **Bottom-left corner**: Triangle with vertices (BR, TL, BL) → diagonal from BR to TL
+- The selected corner is always the last vertex in CCW order
+- The diagonal connects the first two vertices of the triangle
+- For orientation clarity: draw the edge from the selected corner to one diagonal endpoint
+
+### Square Construction
+For a 45° diagonal from point p1 to p2:
+- Since diagonal is at 45°, we have |p2.x - p1.x| = |p2.y - p1.y|
+- The four corners of the axis-aligned square are:
+  - (min(p1.x, p2.x), min(p1.y, p2.y))
+  - (min(p1.x, p2.x), max(p1.y, p2.y))
+  - (max(p1.x, p2.x), min(p1.y, p2.y))
+  - (max(p1.x, p2.x), max(p1.y, p2.y))
+- Or more simply: the bounding box of the two diagonal endpoints
+
+### Positioning Squares Along Diagonal
+- Parameter t ∈ [0, 1] defines position along diagonal
+- Point on diagonal: v2_lerp(p1, p2, t)
+- For square at position t with size factor s:
+  - Center point: v2_lerp(diagonal.start, diagonal.end, t)
+  - Half-diagonal length: s × v2_dist(diagonal.start, diagonal.end) / 2
+  - Diagonal endpoints for this square:
+    - p1 = center - (half_diagonal, half_diagonal)
+    - p2 = center + (half_diagonal, half_diagonal)
+  - Call draw_square(p1, p2)
+
+## Implementation Plan
+
+### Data Structures
+```c
+typedef struct {
+    float x, y;
+} V2;
+
+// Vector operations
+V2 v2_add(V2 a, V2 b) { return (V2){a.x + b.x, a.y + b.y}; }
+V2 v2_sub(V2 a, V2 b) { return (V2){a.x - b.x, a.y - b.y}; }
+V2 v2_scale(V2 v, float s) { return (V2){v.x * s, v.y * s}; }
+V2 v2_lerp(V2 a, V2 b, float t) { return v2_add(a, v2_scale(v2_sub(b, a), t)); }
+float v2_dist(V2 a, V2 b) { V2 d = v2_sub(b, a); return sqrtf(d.x * d.x + d.y * d.y); }
+float v2_length(V2 v) { return sqrtf(v.x * v.x + v.y * v.y); }
+
+typedef struct {
+    V2 start, end;    // diagonal endpoints
+} Diagonal;
+
+typedef struct {
+    float t;          // position along diagonal [0,1]
+    float size;       // size factor [0,1]
+    SDL_Color color;  // square color
+} Square;
+```
+
+### Key Functions
+1. `calculate_diagonal()` - Based on selected corner, compute diagonal endpoints
+2. `get_corner_position()` - Return V2 position of a corner (TL, TR, BR, BL)
+3. `draw_square()` - Draw axis-aligned square given two diagonal endpoints (V2 p1, V2 p2)
+4. `draw_line()` - Draw line between two V2 points
+5. `handle_mouse_click()` - Check if V2 mouse position is within radius of any corner
+6. `draw_corner_indicators()` - Draw circles at corners, highlight selected
+
+### Rendering Pipeline
+1. Clear screen with background color
+2. Draw bounding square (outline only)
+3. Draw small circles at each corner (highlight selected corner)
+4. Draw diagonal line (the selected diagonal)
+5. Draw one edge of the triangle (from selected corner to one endpoint of diagonal) for orientation
+6. For each square in array:
+   - Calculate center from diagonal position
+   - Draw axis-aligned square
+
+## Build Setup
+
+### Dependencies
+- SDL2
+- SDL2_gfx (optional, for anti-aliased drawing)
+
+### Compilation
+```bash
+gcc -o squares squares.c `sdl2-config --cflags --libs` -lm
+```
+
+## Interactive Features
+- Click within radius of corners to select corner and change diagonal
+- Visual feedback: selected corner highlighted with different color
+- Press number keys 1-9 to add squares at different positions
+- Press +/- to adjust selected square size
+- Press SPACE to randomize square positions
+- Press C to cycle through color schemes
+
+## Experiments to Try
+1. Uniform spacing: Place squares at regular intervals (t = 0, 0.25, 0.5, 0.75, 1.0)
+2. Size gradient: Squares get progressively smaller along diagonal
+3. Overlapping squares with transparency
+4. Animation: Squares sliding along the diagonal
+5. Rotation: Slowly rotate entire configuration around center
