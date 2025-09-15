@@ -475,11 +475,6 @@ int main(int argc, char* argv[]) {
                 state.radius_animation = 1.0f;
                 state.animating = false;
                 
-                // Automatically cycle to next kind after a short delay
-                SDL_Delay(500);  // 500ms pause between animations
-                state.previous_kind = state.selected_kind;
-                state.selected_kind = (state.selected_kind + 1) % KIND_COUNT;
-                start_animation(&state);
             } else {
                 float t = elapsed / animation_duration;
                 state.radius_animation = ease_out_bounce(t);
