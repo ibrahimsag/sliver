@@ -176,3 +176,9 @@ When implementing rounded rectangles for squares on a 45° diagonal, we discover
 3. **Separation of Concerns**: `draw_square` function takes diagonal endpoints and handles all square rendering logic internally
 4. **Dual Camera System**: Separating 2D viewport navigation from 1D parameter space navigation provides intuitive control
 5. **Interval Abstraction**: Using `Interval` struct for (start, end) pairs makes transformations more composable
+6. **Dynamic Arrays**: Custom `SquareArray` and `BandArray` structs manage their own memory with capacity/length tracking
+7. **Data-Driven Architecture**: 
+   - `Band` struct encapsulates pattern generation (start, size, stride, repeat) with visual properties (kind, color)
+   - `repeat` field: 0 generates single interval, n generates n+1 intervals total
+   - Bands stored persistently in `BandArray`, squares generated on demand
+   - Clean separation between data definition and rendering
