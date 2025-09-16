@@ -33,7 +33,8 @@ typedef enum {
     KIND_SHARP = 0,     // Sharp corners
     KIND_ROUNDED = 1,   // Rounded corners
     KIND_DOUBLE = 2,    // Double lines
-    KIND_COUNT = 3
+    KIND_WAVE = 3,      // Wavy lines
+    KIND_COUNT = 4
 } SquareKind;
 
 typedef struct {
@@ -659,6 +660,7 @@ void render_band_summaries(AppState* state) {
             case KIND_SHARP: kind_name = "Sharp"; break;
             case KIND_ROUNDED: kind_name = "Rounded"; break;
             case KIND_DOUBLE: kind_name = "Double"; break;
+            case KIND_WAVE: kind_name = "Wave"; break;
             default: kind_name = "Unknown"; break;
         }
         
@@ -697,6 +699,65 @@ void render_band_summaries(AppState* state) {
         
         advance_layout(&layout, 10);  // Space between bands
     }
+}
+
+// Draw a wavy line between two points
+void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thickness, float amplitude, float wavelength, SDL_Color color) {
+    V2 dir = v2_sub(p2, p1);
+    float length = v2_length(dir);
+    if (length == 0) return;
+    
+    dir = v2_scale(dir, 1.0f / length);
+    V2 perp = {-dir.y, dir.x};  // Perpendicular direction
+    
+    // Number of segments for smooth sine wave (more segments = smoother curve)
+    int segments = (int)(length / 2.0f);  // One segment every 2 pixels
+    if (segments < 16) segments = 16;  // Minimum 16 segments for smoothness
+    
+    for (int i = 0; i < segments; i++) {
+        float t1 = (float)i / segments;
+        float t2 = (float)(i + 1) / segments;
+        
+        // Calculate positions along the line
+        V2 base1 = v2_lerp(p1, p2, t1);
+        V2 base2 = v2_lerp(p1, p2, t2);
+        
+        // Calculate wave offsets
+        float phase1 = (t1 * length / wavelength) * 2.0f * M_PI;
+        float phase2 = (t2 * length / wavelength) * 2.0f * M_PI;
+        float offset1 = sinf(phase1) * amplitude;
+        float offset2 = sinf(phase2) * amplitude;
+        
+        // Apply wave offsets
+        V2 wave1 = v2_add(base1, v2_scale(perp, offset1));
+        V2 wave2 = v2_add(base2, v2_scale(perp, offset2));
+        
+        // Draw line segment
+        geometry_buffer_add_line(gb, wave1, wave2, thickness, color);
+    }
+}
+
+// Draw wave rectangle with geometry buffer
+void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera) {
+    float thickness = 2.0f;
+    float amplitude = thickness * 4.0f;  // Amplitude is 4x thickness
+    float wavelength = thickness * 8.0f;  // Wavelength is 8x thickness
+    
+    // Convert world coordinates to screen
+    V2 tl = world_to_screen((V2){x, y}, camera);
+    V2 tr = world_to_screen((V2){x + w, y}, camera);
+    V2 br = world_to_screen((V2){x + w, y + h}, camera);
+    V2 bl = world_to_screen((V2){x, y + h}, camera);
+    
+    // Scale amplitude and wavelength for screen space
+    float screen_amplitude = amplitude * camera->scale;
+    float screen_wavelength = wavelength * camera->scale;
+    
+    // Draw four wavy sides
+    geometry_buffer_add_wave_line(gb, tl, tr, thickness, screen_amplitude, screen_wavelength, color);  // Top
+    geometry_buffer_add_wave_line(gb, tr, br, thickness, screen_amplitude, screen_wavelength, color);  // Right
+    geometry_buffer_add_wave_line(gb, br, bl, thickness, screen_amplitude, screen_wavelength, color);  // Bottom
+    geometry_buffer_add_wave_line(gb, bl, tl, thickness, screen_amplitude, screen_wavelength, color);  // Left
 }
 
 // Draw double-line rectangle with geometry buffer
@@ -879,6 +940,11 @@ void render(AppState* state) {
                     draw_double_rect_geometry(&state->render_ctx.geometry, 
                                             min_x, min_y, max_x - min_x, max_y - min_y, 
                                             sq->color, &state->camera);
+                    break;
+                case KIND_WAVE:
+                    draw_wave_rect_geometry(&state->render_ctx.geometry,
+                                          min_x, min_y, max_x - min_x, max_y - min_y,
+                                          sq->color, &state->camera);
                     break;
                 case KIND_SHARP:
                 default:
@@ -1066,7 +1132,7 @@ void init_bands(AppState* state) {
         .size = 2.1f,
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
-        .kind = KIND_ROUNDED,
+        .kind = KIND_WAVE,
         .color = {150, 200, 150, 255}  // Green
     });
     
