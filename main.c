@@ -44,6 +44,7 @@ typedef struct {
     int repeat;    // Number of additional intervals (0 = single interval, n = n+1 total intervals)
     SquareKind kind;  // The kind/type of squares in this band
     SDL_Color color;  // Color for squares in this band
+    bool rounded;  // Whether squares in this band should have rounded corners
 } Band;
 
 typedef struct {
@@ -67,6 +68,7 @@ typedef struct {
     Interval interval;  // position along diagonal [0,1]
     SDL_Color color;
     SquareKind kind;
+    bool rounded;  // Whether this square has rounded corners
 } Square;
 
 typedef struct {
@@ -121,16 +123,14 @@ typedef struct {
     Diagonal diagonal;
     BandArray bands;      // Dynamic array of band definitions
     SquareArray squares;  // Dynamic array of squares
-    SquareKind selected_kind;
-    SquareKind previous_kind;  // For exit animation
-    float radius_animation;  // 0 to 1 animation progress
-    Uint32 animation_start_time;
-    bool animating;
     Camera camera;  // For 2D viewport movement
     SliverCamera sliver_camera;  // For 1D parameter space windowing
     bool dragging;  // For mouse drag panning
     V2 drag_start;  // Mouse position when drag started
     V2 camera_start;  // Camera offset when drag started
+    V2 mouse_pos;  // Current mouse position
+    bool mouse_pressed;  // Is left mouse button pressed this frame
+    bool mouse_was_pressed;  // Was left mouse button pressed last frame
     bool running;
 } AppState;
 
@@ -235,6 +235,7 @@ float ease_out_bounce(float t) {
 void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius);
 void draw_circle(SDL_Renderer* renderer, V2 center, float radius);
 void render_band_summaries(AppState* state);
+void generate_squares_from_bands(AppState* state);
 
 // Geometry buffer functions
 void geometry_buffer_init(GeometryBuffer* gb, size_t initial_vertex_capacity, size_t initial_index_capacity) {
@@ -586,6 +587,53 @@ void advance_layout(Layout* layout, float height) {
     }
 }
 
+// Simple immediate mode button
+bool render_button(AppState* state, const char* text, V2 position, V2 size, bool active) {
+    SDL_Rect button_rect = {
+        (int)position.x,
+        (int)position.y,
+        (int)size.x,
+        (int)size.y
+    };
+    
+    // Check if mouse is over button
+    bool hover = state->mouse_pos.x >= button_rect.x && state->mouse_pos.x < button_rect.x + button_rect.w &&
+                 state->mouse_pos.y >= button_rect.y && state->mouse_pos.y < button_rect.y + button_rect.h;
+    
+    // Draw button background
+    if (active) {
+        SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
+    } else if (hover) {
+        SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
+    } else {
+        SDL_SetRenderDrawColor(state->renderer, 50, 50, 55, 255);
+    }
+    SDL_RenderFillRect(state->renderer, &button_rect);
+    
+    // Draw button border
+    SDL_SetRenderDrawColor(state->renderer, 90, 90, 95, 255);
+    SDL_RenderDrawRect(state->renderer, &button_rect);
+    
+    // Draw button text centered
+    if (state->font) {
+        V2 text_pos = {
+            position.x + size.x / 2.0f,
+            position.y + size.y / 2.0f - 9  // Rough centering
+        };
+        
+        // Measure text to center it properly
+        int text_w, text_h;
+        TTF_SizeText(state->font, text, &text_w, &text_h);
+        text_pos.x -= (text_w / 2) / 2.0f;  // Adjust for supersampling
+        
+        SDL_Color text_color = active ? (SDL_Color){255, 255, 255, 255} : (SDL_Color){200, 200, 200, 255};
+        render_text(state, text, text_pos, text_color);
+    }
+    
+    // Return true if button was clicked (mouse was pressed last frame, not pressed this frame, and hovering)
+    return hover && !state->mouse_pressed && state->mouse_was_pressed;
+}
+
 void render_band_summaries(AppState* state) {
     Layout layout = {
         .next = {VIEWPORT_WIDTH + 20, 40},
@@ -616,6 +664,17 @@ void render_band_summaries(AppState* state) {
         
         snprintf(buffer, sizeof(buffer), "Band %zu: %s", i + 1, kind_name);
         render_text(state, buffer, layout.next, band->color);
+        
+        // Add rounded toggle button
+        V2 button_pos = {layout.next.x + 300, layout.next.y};
+        V2 button_size = {80, 22};
+        if (render_button(state, band->rounded ? "Rounded" : "Square", button_pos, button_size, band->rounded)) {
+            // Toggle rounded state
+            band->rounded = !band->rounded;
+            // Regenerate squares to apply the change
+            generate_squares_from_bands(state);
+        }
+        
         advance_layout(&layout, 25);
         
         // Band details
@@ -774,33 +833,20 @@ void render(AppState* state) {
             V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.start);
             V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.end);
             
-            // Animate both entering and exiting kinds
-            bool should_round = false;
-            float radius_factor = 1.0f;
-            
-            if (sq->kind == state->selected_kind) {
-                should_round = true;
-                radius_factor = state->radius_animation;  // Animating in
-            } else if (state->animating && sq->kind == state->previous_kind) {
-                should_round = true;
-                radius_factor = 1.0f - state->radius_animation;  // Animating out
-            }
-            
             // Draw square using geometry buffer
             float min_x = fminf(p1.x, p2.x);
             float max_x = fmaxf(p1.x, p2.x);
             float min_y = fminf(p1.y, p2.y);
             float max_y = fmaxf(p1.y, p2.y);
             
-            if (should_round) {
+            if (sq->rounded) {
                 float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
-                float radius = base_radius * radius_factor;
-                float extend = radius * (1.0f - 1.0f/sqrtf(2));
+                float extend = base_radius * (1.0f - 1.0f/sqrtf(2));
                 draw_rounded_rect_geometry(&state->render_ctx.geometry, 
                                           min_x - extend, min_y - extend, 
                                           (max_x - min_x) + 2 * extend, 
                                           (max_y - min_y) + 2 * extend, 
-                                          radius, sq->color, &state->camera);
+                                          base_radius, sq->color, &state->camera);
             } else {
                 draw_rounded_rect_geometry(&state->render_ctx.geometry, 
                                           min_x, min_y, max_x - min_x, max_y - min_y, 
@@ -930,6 +976,7 @@ void generate_intervals_from_band(SquareArray* arr, Band* band) {
         arr->ptr[start_idx + i].interval.end = interval_start + band->size;
         arr->ptr[start_idx + i].color = band->color;  // Use color from Band
         arr->ptr[start_idx + i].kind = band->kind;    // Use kind from Band
+        arr->ptr[start_idx + i].rounded = band->rounded;  // Use rounded from Band
     }
     
     arr->length += count;
@@ -956,7 +1003,8 @@ void init_bands(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 9,     // 10 total intervals
         .kind = KIND_UNIT,
-        .color = {60, 60, 60, 255}  // Dark gray
+        .color = {60, 60, 60, 255},  // Dark gray
+        .rounded = false  // Start with square corners
     });
     
     // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
@@ -966,7 +1014,8 @@ void init_bands(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 7,     // 8 total intervals
         .kind = KIND_OFFSET,
-        .color = {100, 150, 200, 255}  // Blue
+        .color = {100, 150, 200, 255},  // Blue
+        .rounded = true  // Start with rounded corners
     });
     
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
@@ -976,7 +1025,8 @@ void init_bands(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
         .kind = KIND_HALF,
-        .color = {200, 150, 100, 255}  // Orange
+        .color = {200, 150, 100, 255},  // Orange
+        .rounded = false  // Start with square corners
     });
     
     // Sequence 4: single square at 6.6-8.7
@@ -986,18 +1036,14 @@ void init_bands(AppState* state) {
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
         .kind = KIND_LARGE,
-        .color = {150, 200, 150, 255}  // Green
+        .color = {150, 200, 150, 255},  // Green
+        .rounded = true  // Start with rounded corners
     });
     
     // Generate squares from bands
     generate_squares_from_bands(state);
 }
 
-void start_animation(AppState* state) {
-    state->animating = true;
-    state->animation_start_time = SDL_GetTicks();
-    state->radius_animation = 0.0f;
-}
 
 int main(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -1014,8 +1060,6 @@ int main(int argc, char* argv[]) {
     AppState state = {0};
     state.running = true;
     state.selected_corner = CORNER_BR;  // Start with bottom-right selected
-    state.selected_kind = KIND_UNIT;    // Start with unit squares selected
-    state.previous_kind = KIND_UNIT;    // Initialize previous kind
     state.bounding_center = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center in viewport
     state.bounding_half = (BOUNDING_SIZE - BOUNDING_PADDING) / 2;
     
@@ -1076,10 +1120,16 @@ int main(int argc, char* argv[]) {
     
     calculate_diagonal(&state);
     init_bands(&state);
-    start_animation(&state);  // Start initial animation
     
     SDL_Event event;
     while (state.running) {
+        // Update mouse state before processing events
+        state.mouse_was_pressed = state.mouse_pressed;
+        int mouse_x, mouse_y;
+        Uint32 mouse_state = SDL_GetMouseState(&mouse_x, &mouse_y);
+        state.mouse_pos = (V2){(float)mouse_x, (float)mouse_y};
+        state.mouse_pressed = (mouse_state & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+        
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
                 case SDL_QUIT:
@@ -1087,11 +1137,20 @@ int main(int argc, char* argv[]) {
                     break;
                     
                 case SDL_MOUSEBUTTONDOWN:
-                    if (event.button.button == SDL_BUTTON_LEFT && !(SDL_GetModState() & KMOD_SHIFT)) {
-                        handle_mouse_click(&state, event.button.x, event.button.y);
+                    if (event.button.button == SDL_BUTTON_LEFT) {
+                        if (event.button.x < VIEWPORT_WIDTH) {
+                            if (!(SDL_GetModState() & KMOD_SHIFT)) {
+                                handle_mouse_click(&state, event.button.x, event.button.y);
+                            } else {
+                                // Shift+click to drag
+                                state.dragging = true;
+                                state.drag_start = (V2){(float)event.button.x, (float)event.button.y};
+                                state.camera_start = state.camera.offset;
+                            }
+                        }
+                        // UI panel clicks are handled by button hover check
                     } else if (event.button.button == SDL_BUTTON_RIGHT || 
-                              event.button.button == SDL_BUTTON_MIDDLE ||
-                              (event.button.button == SDL_BUTTON_LEFT && (SDL_GetModState() & KMOD_SHIFT))) {
+                              event.button.button == SDL_BUTTON_MIDDLE) {
                         // Start dragging only if in viewport
                         if (event.button.x < VIEWPORT_WIDTH) {
                             state.dragging = true;
@@ -1165,12 +1224,6 @@ int main(int argc, char* argv[]) {
                                 }
                             }
                             break;
-                        case SDLK_TAB:
-                            // Cycle through square kinds and trigger animation
-                            state.previous_kind = state.selected_kind;
-                            state.selected_kind = (state.selected_kind + 1) % KIND_COUNT;
-                            start_animation(&state);
-                            break;
                         case SDLK_SPACE:
                             // Reset to original square definitions
                             init_bands(&state);
@@ -1217,21 +1270,6 @@ int main(int argc, char* argv[]) {
             }
         }
         
-        // Update animation
-        if (state.animating) {
-            Uint32 current_time = SDL_GetTicks();
-            float elapsed = (current_time - state.animation_start_time) / 1000.0f;  // Convert to seconds
-            float animation_duration = 1.0f;  // 1 second animation
-            
-            if (elapsed >= animation_duration) {
-                state.radius_animation = 1.0f;
-                state.animating = false;
-                
-            } else {
-                float t = elapsed / animation_duration;
-                state.radius_animation = ease_out_bounce(t);
-            }
-        }
         
         render(&state);
         SDL_Delay(16);  // ~60 FPS
