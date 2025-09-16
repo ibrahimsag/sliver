@@ -30,11 +30,10 @@ typedef struct {
 } Interval;
 
 typedef enum {
-    KIND_UNIT = 0,      // Sequence 1: unit squares
-    KIND_OFFSET = 1,    // Sequence 2: offset squares
-    KIND_HALF = 2,      // Sequence 3: half-unit squares
-    KIND_LARGE = 3,     // Sequence 4: large square
-    KIND_COUNT = 4
+    KIND_SHARP = 0,     // Sharp corners
+    KIND_ROUNDED = 1,   // Rounded corners
+    KIND_DOUBLE = 2,    // Double lines
+    KIND_COUNT = 3
 } SquareKind;
 
 typedef struct {
@@ -42,9 +41,8 @@ typedef struct {
     float size;    // Size of each interval
     float stride;  // Distance between interval starts
     int repeat;    // Number of additional intervals (0 = single interval, n = n+1 total intervals)
-    SquareKind kind;  // The kind/type of squares in this band
+    SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
     SDL_Color color;  // Color for squares in this band
-    bool rounded;  // Whether squares in this band should have rounded corners
 } Band;
 
 typedef struct {
@@ -67,8 +65,7 @@ typedef struct {
 typedef struct {
     Interval interval;  // position along diagonal [0,1]
     SDL_Color color;
-    SquareKind kind;
-    bool rounded;  // Whether this square has rounded corners
+    SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
 } Square;
 
 typedef struct {
@@ -652,25 +649,24 @@ void render_band_summaries(AppState* state) {
     for (size_t i = 0; i < state->bands.length; i++) {
         Band* band = &state->bands.ptr[i];
         
-        // Band header with kind name
+        // Band header with band number
+        snprintf(buffer, sizeof(buffer), "Band %zu:", i + 1);
+        render_text(state, buffer, layout.next, band->color);
+        
+        // Add kind toggle button
         const char* kind_name = "Unknown";
         switch (band->kind) {
-            case KIND_UNIT: kind_name = "Unit"; break;
-            case KIND_OFFSET: kind_name = "Offset"; break;
-            case KIND_HALF: kind_name = "Half"; break;
-            case KIND_LARGE: kind_name = "Large"; break;
+            case KIND_SHARP: kind_name = "Sharp"; break;
+            case KIND_ROUNDED: kind_name = "Rounded"; break;
+            case KIND_DOUBLE: kind_name = "Double"; break;
             default: kind_name = "Unknown"; break;
         }
         
-        snprintf(buffer, sizeof(buffer), "Band %zu: %s", i + 1, kind_name);
-        render_text(state, buffer, layout.next, band->color);
-        
-        // Add rounded toggle button
-        V2 button_pos = {layout.next.x + 300, layout.next.y};
+        V2 button_pos = {layout.next.x + 200, layout.next.y};
         V2 button_size = {80, 22};
-        if (render_button(state, band->rounded ? "Rounded" : "Square", button_pos, button_size, band->rounded)) {
-            // Toggle rounded state
-            band->rounded = !band->rounded;
+        if (render_button(state, kind_name, button_pos, button_size, false)) {
+            // Cycle to next kind
+            band->kind = (band->kind + 1) % KIND_COUNT;
             // Regenerate squares to apply the change
             generate_squares_from_bands(state);
         }
@@ -701,6 +697,35 @@ void render_band_summaries(AppState* state) {
         
         advance_layout(&layout, 10);  // Space between bands
     }
+}
+
+// Draw double-line rectangle with geometry buffer
+void draw_double_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera) {
+    float thickness = 2.0f;
+    float gap = thickness * 2.0f;  // Gap between lines equals thickness
+    
+    // Outer rectangle
+    V2 tl_outer = world_to_screen((V2){x, y}, camera);
+    V2 tr_outer = world_to_screen((V2){x + w, y}, camera);
+    V2 br_outer = world_to_screen((V2){x + w, y + h}, camera);
+    V2 bl_outer = world_to_screen((V2){x, y + h}, camera);
+    
+    geometry_buffer_add_line(gb, tl_outer, tr_outer, thickness, color);
+    geometry_buffer_add_line(gb, tr_outer, br_outer, thickness, color);
+    geometry_buffer_add_line(gb, br_outer, bl_outer, thickness, color);
+    geometry_buffer_add_line(gb, bl_outer, tl_outer, thickness, color);
+    
+    // Inner rectangle (inset by gap)
+    float inset = gap / camera->scale;  // Convert gap to world units
+    V2 tl_inner = world_to_screen((V2){x + inset, y + inset}, camera);
+    V2 tr_inner = world_to_screen((V2){x + w - inset, y + inset}, camera);
+    V2 br_inner = world_to_screen((V2){x + w - inset, y + h - inset}, camera);
+    V2 bl_inner = world_to_screen((V2){x + inset, y + h - inset}, camera);
+    
+    geometry_buffer_add_line(gb, tl_inner, tr_inner, thickness, color);
+    geometry_buffer_add_line(gb, tr_inner, br_inner, thickness, color);
+    geometry_buffer_add_line(gb, br_inner, bl_inner, thickness, color);
+    geometry_buffer_add_line(gb, bl_inner, tl_inner, thickness, color);
 }
 
 // Draw rounded rectangle with geometry buffer
@@ -833,24 +858,34 @@ void render(AppState* state) {
             V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.start);
             V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.end);
             
-            // Draw square using geometry buffer
+            // Draw square using geometry buffer based on kind
             float min_x = fminf(p1.x, p2.x);
             float max_x = fmaxf(p1.x, p2.x);
             float min_y = fminf(p1.y, p2.y);
             float max_y = fmaxf(p1.y, p2.y);
             
-            if (sq->rounded) {
-                float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
-                float extend = base_radius * (1.0f - 1.0f/sqrtf(2));
-                draw_rounded_rect_geometry(&state->render_ctx.geometry, 
-                                          min_x - extend, min_y - extend, 
-                                          (max_x - min_x) + 2 * extend, 
-                                          (max_y - min_y) + 2 * extend, 
-                                          base_radius, sq->color, &state->camera);
-            } else {
-                draw_rounded_rect_geometry(&state->render_ctx.geometry, 
-                                          min_x, min_y, max_x - min_x, max_y - min_y, 
-                                          0, sq->color, &state->camera);
+            switch (sq->kind) {
+                case KIND_ROUNDED: {
+                    float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
+                    float extend = base_radius * (1.0f - 1.0f/sqrtf(2));
+                    draw_rounded_rect_geometry(&state->render_ctx.geometry, 
+                                              min_x - extend, min_y - extend, 
+                                              (max_x - min_x) + 2 * extend, 
+                                              (max_y - min_y) + 2 * extend, 
+                                              base_radius, sq->color, &state->camera);
+                    break;
+                }
+                case KIND_DOUBLE:
+                    draw_double_rect_geometry(&state->render_ctx.geometry, 
+                                            min_x, min_y, max_x - min_x, max_y - min_y, 
+                                            sq->color, &state->camera);
+                    break;
+                case KIND_SHARP:
+                default:
+                    draw_rounded_rect_geometry(&state->render_ctx.geometry, 
+                                              min_x, min_y, max_x - min_x, max_y - min_y, 
+                                              0, sq->color, &state->camera);
+                    break;
             }
         }
         
@@ -976,7 +1011,6 @@ void generate_intervals_from_band(SquareArray* arr, Band* band) {
         arr->ptr[start_idx + i].interval.end = interval_start + band->size;
         arr->ptr[start_idx + i].color = band->color;  // Use color from Band
         arr->ptr[start_idx + i].kind = band->kind;    // Use kind from Band
-        arr->ptr[start_idx + i].rounded = band->rounded;  // Use rounded from Band
     }
     
     arr->length += count;
@@ -1002,9 +1036,8 @@ void init_bands(AppState* state) {
         .size = 1.0f,    // Unit size
         .stride = 1.0f,  // Unit spacing
         .repeat = 9,     // 10 total intervals
-        .kind = KIND_UNIT,
-        .color = {60, 60, 60, 255},  // Dark gray
-        .rounded = false  // Start with square corners
+        .kind = KIND_SHARP,
+        .color = {60, 60, 60, 255}  // Dark gray
     });
     
     // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
@@ -1013,9 +1046,8 @@ void init_bands(AppState* state) {
         .size = 1.0f,    // Unit size
         .stride = 1.0f,  // Unit spacing
         .repeat = 7,     // 8 total intervals
-        .kind = KIND_OFFSET,
-        .color = {100, 150, 200, 255},  // Blue
-        .rounded = true  // Start with rounded corners
+        .kind = KIND_ROUNDED,
+        .color = {100, 150, 200, 255}  // Blue
     });
     
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
@@ -1024,9 +1056,8 @@ void init_bands(AppState* state) {
         .size = 0.5f,    // Half size
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
-        .kind = KIND_HALF,
-        .color = {200, 150, 100, 255},  // Orange
-        .rounded = false  // Start with square corners
+        .kind = KIND_DOUBLE,
+        .color = {200, 150, 100, 255}  // Orange
     });
     
     // Sequence 4: single square at 6.6-8.7
@@ -1035,9 +1066,8 @@ void init_bands(AppState* state) {
         .size = 2.1f,
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
-        .kind = KIND_LARGE,
-        .color = {150, 200, 150, 255},  // Green
-        .rounded = true  // Start with rounded corners
+        .kind = KIND_ROUNDED,
+        .color = {150, 200, 150, 255}  // Green
     });
     
     // Generate squares from bands
