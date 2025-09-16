@@ -45,6 +45,8 @@ typedef struct {
     SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
     SDL_Color color;  // Color for squares in this band
     int wavelength_scale;  // Multiplier for wavelength when kind is WAVE
+    bool wave_inverted;  // Whether to use π phase offset for waves
+    bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
 } Band;
 
 typedef struct {
@@ -69,6 +71,8 @@ typedef struct {
     SDL_Color color;
     SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
     int wavelength_scale;  // Wavelength multiplier for WAVE kind
+    bool wave_inverted;  // Whether to use π phase offset for waves
+    bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
 } Square;
 
 typedef struct {
@@ -702,6 +706,24 @@ void render_band_summaries(AppState* state) {
                     generate_squares_from_bands(state);
                 }
             }
+            
+            // Phase toggle button (false = π offset, true = no offset)
+            V2 phase_pos = {inc_pos.x + small_button_size.x + 10, layout.next.y};
+            V2 phase_button_size = {60, 22};
+            const char* phase_text = band->wave_inverted ? "NoPhase" : "Phase";
+            if (render_button(state, phase_text, phase_pos, phase_button_size, band->wave_inverted)) {
+                band->wave_inverted = !band->wave_inverted;
+                generate_squares_from_bands(state);
+            }
+            
+            // Half period toggle button (false = half period, true = full period)
+            V2 half_pos = {phase_pos.x + phase_button_size.x + 5, layout.next.y};
+            V2 half_button_size = {50, 22};
+            const char* half_text = band->wave_half_period ? "Full" : "Half";
+            if (render_button(state, half_text, half_pos, half_button_size, band->wave_half_period)) {
+                band->wave_half_period = !band->wave_half_period;
+                generate_squares_from_bands(state);
+            }
         }
         
         advance_layout(&layout, 25);
@@ -733,7 +755,7 @@ void render_band_summaries(AppState* state) {
 }
 
 // Draw a wavy line between two points
-void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thickness, float amplitude, float wavelength, SDL_Color color) {
+void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thickness, float amplitude, float wavelength, SDL_Color color, bool inverted, bool half_period) {
     V2 dir = v2_sub(p2, p1);
     float length = v2_length(dir);
     if (length == 0) return;
@@ -743,11 +765,20 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
     
     // Calculate number of complete wavelengths that fit
     float num_waves = length / wavelength;
-    int complete_waves = (int)(num_waves + 0.5f);  // Round to nearest integer
-    if (complete_waves < 1) complete_waves = 1;
+    float target_waves;
+    
+    if (!half_period) {  // Inverted logic - false means half period
+        // Target (2n+1)/2 periods: 0.5, 1.5, 2.5, etc.
+        int n = (int)(num_waves);
+        target_waves = (n > 0) ? n + 0.5f : 0.5f;
+    } else {
+        // Target n periods: 1, 2, 3, etc.
+        target_waves = (int)(num_waves + 0.5f);
+        if (target_waves < 1) target_waves = 1;
+    }
     
     // Adjust wavelength to fit exactly
-    float adjusted_wavelength = length / complete_waves;
+    float adjusted_wavelength = length / target_waves;
     
     // Number of segments for smooth sine wave (more segments = smoother curve)
     int segments = (int)(length / 2.0f);  // One segment every 2 pixels
@@ -761,9 +792,10 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
         V2 base1 = v2_lerp(p1, p2, t1);
         V2 base2 = v2_lerp(p1, p2, t2);
         
-        // Calculate wave offsets using adjusted wavelength with π/2 phase offset
-        float phase1 = (t1 * length / adjusted_wavelength) * 2.0f * M_PI + M_PI;
-        float phase2 = (t2 * length / adjusted_wavelength) * 2.0f * M_PI + M_PI;
+        // Calculate wave offsets using adjusted wavelength with optional π phase offset
+        float phase_offset = !inverted ? M_PI : 0.0f;  // Inverted logic - false means π offset
+        float phase1 = (t1 * length / adjusted_wavelength) * 2.0f * M_PI + phase_offset;
+        float phase2 = (t2 * length / adjusted_wavelength) * 2.0f * M_PI + phase_offset;
         float offset1 = sinf(phase1) * amplitude;
         float offset2 = sinf(phase2) * amplitude;
         
@@ -777,7 +809,7 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
 }
 
 // Draw wave rectangle with geometry buffer
-void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale) {
+void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period) {
     float thickness = 2.0f;
     float amplitude = thickness * 3.0f;  // Amplitude is 3x thickness
     float wavelength = thickness * 8.0f * wavelength_scale;  // Wavelength is 8x thickness * scale
@@ -793,10 +825,10 @@ void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, floa
     float screen_wavelength = wavelength * camera->scale;
     
     // Draw four wavy sides
-    geometry_buffer_add_wave_line(gb, tl, tr, thickness, screen_amplitude, screen_wavelength, color);  // Top
-    geometry_buffer_add_wave_line(gb, tr, br, thickness, screen_amplitude, screen_wavelength, color);  // Right
-    geometry_buffer_add_wave_line(gb, br, bl, thickness, screen_amplitude, screen_wavelength, color);  // Bottom
-    geometry_buffer_add_wave_line(gb, bl, tl, thickness, screen_amplitude, screen_wavelength, color);  // Left
+    geometry_buffer_add_wave_line(gb, tl, tr, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Top
+    geometry_buffer_add_wave_line(gb, tr, br, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Right
+    geometry_buffer_add_wave_line(gb, br, bl, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Bottom
+    geometry_buffer_add_wave_line(gb, bl, tl, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Left
 }
 
 // Draw double-line rectangle with geometry buffer
@@ -983,7 +1015,8 @@ void render(AppState* state) {
                 case KIND_WAVE:
                     draw_wave_rect_geometry(&state->render_ctx.geometry,
                                           min_x, min_y, max_x - min_x, max_y - min_y,
-                                          sq->color, &state->camera, sq->wavelength_scale);
+                                          sq->color, &state->camera, sq->wavelength_scale, 
+                                          sq->wave_inverted, sq->wave_half_period);
                     break;
                 case KIND_SHARP:
                 default:
@@ -1117,6 +1150,8 @@ void generate_intervals_from_band(SquareArray* arr, Band* band) {
         arr->ptr[start_idx + i].color = band->color;  // Use color from Band
         arr->ptr[start_idx + i].kind = band->kind;    // Use kind from Band
         arr->ptr[start_idx + i].wavelength_scale = band->wavelength_scale;  // Use wavelength_scale from Band
+        arr->ptr[start_idx + i].wave_inverted = band->wave_inverted;  // Use wave_inverted from Band
+        arr->ptr[start_idx + i].wave_half_period = band->wave_half_period;  // Use wave_half_period from Band
     }
     
     arr->length += count;
@@ -1144,7 +1179,9 @@ void init_bands(AppState* state) {
         .repeat = 9,     // 10 total intervals
         .kind = KIND_SHARP,
         .color = {60, 60, 60, 255},  // Dark gray
-        .wavelength_scale = 1
+        .wavelength_scale = 1,
+        .wave_inverted = false,
+        .wave_half_period = false
     });
     
     // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
@@ -1155,7 +1192,9 @@ void init_bands(AppState* state) {
         .repeat = 7,     // 8 total intervals
         .kind = KIND_ROUNDED,
         .color = {100, 150, 200, 255},  // Blue
-        .wavelength_scale = 1
+        .wavelength_scale = 1,
+        .wave_inverted = false,
+        .wave_half_period = false
     });
     
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
@@ -1166,7 +1205,9 @@ void init_bands(AppState* state) {
         .repeat = 4,     // 5 total intervals
         .kind = KIND_DOUBLE,
         .color = {200, 150, 100, 255},  // Orange
-        .wavelength_scale = 1
+        .wavelength_scale = 1,
+        .wave_inverted = false,
+        .wave_half_period = false
     });
     
     // Sequence 4: single square at 6.6-8.7
@@ -1177,7 +1218,9 @@ void init_bands(AppState* state) {
         .repeat = 0,     // Single interval
         .kind = KIND_WAVE,
         .color = {150, 200, 150, 255},  // Green
-        .wavelength_scale = 2  // Start with 2x wavelength
+        .wavelength_scale = 2,  // Start with 2x wavelength
+        .wave_inverted = false,  // Start with normal phase
+        .wave_half_period = false  // Start with full periods
     });
     
     // Generate squares from bands
