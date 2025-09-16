@@ -710,6 +710,14 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
     dir = v2_scale(dir, 1.0f / length);
     V2 perp = {-dir.y, dir.x};  // Perpendicular direction
     
+    // Calculate number of complete wavelengths that fit
+    float num_waves = length / wavelength;
+    int complete_waves = (int)(num_waves + 0.5f);  // Round to nearest integer
+    if (complete_waves < 1) complete_waves = 1;
+    
+    // Adjust wavelength to fit exactly
+    float adjusted_wavelength = length / complete_waves;
+    
     // Number of segments for smooth sine wave (more segments = smoother curve)
     int segments = (int)(length / 2.0f);  // One segment every 2 pixels
     if (segments < 16) segments = 16;  // Minimum 16 segments for smoothness
@@ -722,9 +730,9 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
         V2 base1 = v2_lerp(p1, p2, t1);
         V2 base2 = v2_lerp(p1, p2, t2);
         
-        // Calculate wave offsets
-        float phase1 = (t1 * length / wavelength) * 2.0f * M_PI;
-        float phase2 = (t2 * length / wavelength) * 2.0f * M_PI;
+        // Calculate wave offsets using adjusted wavelength with π/2 phase offset
+        float phase1 = (t1 * length / adjusted_wavelength) * 2.0f * M_PI + M_PI;
+        float phase2 = (t2 * length / adjusted_wavelength) * 2.0f * M_PI + M_PI;
         float offset1 = sinf(phase1) * amplitude;
         float offset2 = sinf(phase2) * amplitude;
         
@@ -740,7 +748,7 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
 // Draw wave rectangle with geometry buffer
 void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera) {
     float thickness = 2.0f;
-    float amplitude = thickness * 4.0f;  // Amplitude is 4x thickness
+    float amplitude = thickness * 3.0f;  // Amplitude is 4x thickness
     float wavelength = thickness * 8.0f;  // Wavelength is 8x thickness
     
     // Convert world coordinates to screen
