@@ -5,6 +5,6 @@
 set -e  # Exit on error
 
 echo "Building main..."
-gcc -o main main.c `sdl2-config --cflags --libs` -lm
+gcc -o main main.c `sdl2-config --cflags --libs` -lSDL2_ttf -lm
 
 echo "Build complete. Run with: ./main"

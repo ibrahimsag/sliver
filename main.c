@@ -1,4 +1,5 @@
 #include <SDL.h>
+#include <SDL_ttf.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -18,6 +19,11 @@
 typedef struct {
     float x, y;
 } V2;
+
+typedef struct {
+    V2 next;  // Next position to draw at
+    V2 max;   // Maximum bounds for layout
+} Layout;
 
 typedef struct {
     float start, end;
@@ -92,6 +98,7 @@ typedef struct {
 typedef struct {
     SDL_Window* window;
     SDL_Renderer* renderer;
+    TTF_Font* font;
     V2 bounding_center;
     float bounding_half;
     Corner selected_corner;
@@ -211,6 +218,7 @@ float ease_out_bounce(float t) {
 // Forward declarations
 void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius);
 void draw_circle(SDL_Renderer* renderer, V2 center, float radius);
+void render_band_summaries(AppState* state);
 
 void draw_line(SDL_Renderer* renderer, V2 p1, V2 p2) {
     SDL_RenderDrawLine(renderer, p1.x, p1.y, p2.x, p2.y);
@@ -366,7 +374,95 @@ void render_ui_panel(AppState* state) {
     SDL_SetRenderDrawColor(state->renderer, 60, 60, 65, 255);
     SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT);
     
-    // TODO: Add UI elements here
+    // Render band summaries
+    render_band_summaries(state);
+}
+
+void render_text(AppState* state, const char* text, V2 position, SDL_Color color) {
+    if (!state->font || !text) return;
+    
+    // Render at 2x size for supersampling
+    SDL_Surface* surface = TTF_RenderText_Blended(state->font, text, color);
+    if (!surface) return;
+    
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(state->renderer, surface);
+    if (texture) {
+        // Scale down to half size for supersampling effect
+        SDL_Rect dest = {
+            (int)position.x,
+            (int)position.y,
+            surface->w / 2,  // Half width for supersampling
+            surface->h / 2   // Half height for supersampling
+        };
+        SDL_RenderCopy(state->renderer, texture, NULL, &dest);
+        SDL_DestroyTexture(texture);
+    }
+    SDL_FreeSurface(surface);
+}
+
+void advance_layout(Layout* layout, float height) {
+    layout->next.y += height;
+    if (layout->next.y > layout->max.y) {
+        layout->next.y = layout->max.y;
+    }
+}
+
+void render_band_summaries(AppState* state) {
+    Layout layout = {
+        .next = {VIEWPORT_WIDTH + 20, 40},
+        .max = {WINDOW_WIDTH - 20, WINDOW_HEIGHT - 40}
+    };
+    
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Color gray = {180, 180, 180, 255};
+    
+    // Title
+    render_text(state, "Band Summary", layout.next, white);
+    advance_layout(&layout, 30);
+    
+    // Render each band
+    char buffer[256];
+    for (size_t i = 0; i < state->bands.length; i++) {
+        Band* band = &state->bands.ptr[i];
+        
+        // Band header with kind name
+        const char* kind_name = "Unknown";
+        switch (band->kind) {
+            case KIND_UNIT: kind_name = "Unit"; break;
+            case KIND_OFFSET: kind_name = "Offset"; break;
+            case KIND_HALF: kind_name = "Half"; break;
+            case KIND_LARGE: kind_name = "Large"; break;
+            default: kind_name = "Unknown"; break;
+        }
+        
+        snprintf(buffer, sizeof(buffer), "Band %zu: %s", i + 1, kind_name);
+        render_text(state, buffer, layout.next, band->color);
+        advance_layout(&layout, 25);
+        
+        // Band details
+        snprintf(buffer, sizeof(buffer), "  Start: %.2f", band->start);
+        render_text(state, buffer, layout.next, gray);
+        advance_layout(&layout, 20);
+        
+        snprintf(buffer, sizeof(buffer), "  Size: %.2f", band->size);
+        render_text(state, buffer, layout.next, gray);
+        advance_layout(&layout, 20);
+        
+        if (band->repeat > 0) {
+            snprintf(buffer, sizeof(buffer), "  Stride: %.2f", band->stride);
+            render_text(state, buffer, layout.next, gray);
+            advance_layout(&layout, 20);
+            
+            snprintf(buffer, sizeof(buffer), "  Count: %d intervals", band->repeat + 1);
+            render_text(state, buffer, layout.next, gray);
+            advance_layout(&layout, 20);
+        } else {
+            render_text(state, "  Single interval", layout.next, gray);
+            advance_layout(&layout, 20);
+        }
+        
+        advance_layout(&layout, 10);  // Space between bands
+    }
 }
 
 void render(AppState* state) {
@@ -633,6 +729,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    if (TTF_Init() != 0) {
+        fprintf(stderr, "TTF_Init failed: %s\n", TTF_GetError());
+        SDL_Quit();
+        return 1;
+    }
+    
     AppState state = {0};
     state.running = true;
     state.selected_corner = CORNER_BR;  // Start with bottom-right selected
@@ -675,6 +777,13 @@ int main(int argc, char* argv[]) {
     
     // Set up logical size for consistent coordinates
     SDL_RenderSetLogicalSize(state.renderer, WINDOW_WIDTH, WINDOW_HEIGHT);
+    
+    // Load font with 2x size for supersampling
+    state.font = TTF_OpenFont("SourceCodePro-Regular.ttf", 36);  // 2x size for supersampling
+    if (!state.font) {
+        fprintf(stderr, "Failed to load SourceCodePro-Regular.ttf: %s\n", TTF_GetError());
+        // Continue without font - UI text won't be rendered
+    }
     
     // Check for HiDPI
     int window_w, window_h;
@@ -844,8 +953,12 @@ int main(int argc, char* argv[]) {
     // Cleanup
     band_array_free(&state.bands);
     square_array_free(&state.squares);
+    if (state.font) {
+        TTF_CloseFont(state.font);
+    }
     SDL_DestroyRenderer(state.renderer);
     SDL_DestroyWindow(state.window);
+    TTF_Quit();
     SDL_Quit();
     
     return 0;
