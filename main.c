@@ -7,6 +7,8 @@
 
 #define WINDOW_WIDTH 1920
 #define WINDOW_HEIGHT 1080
+#define VIEWPORT_WIDTH 1400  // Left side for sliver viewport
+#define UI_PANEL_WIDTH (WINDOW_WIDTH - VIEWPORT_WIDTH)  // Right side for UI
 #define BOUNDING_SIZE 900
 #define BOUNDING_PADDING 50
 #define CORNER_RADIUS 30
@@ -109,17 +111,17 @@ typedef struct {
     bool running;
 } AppState;
 
-// Transform world coordinates to screen coordinates using camera
+// Transform world coordinates to screen coordinates using camera (within viewport)
 V2 world_to_screen(V2 world, Camera* camera) {
     V2 centered = v2_sub(world, camera->offset);
     V2 scaled = v2_scale(centered, camera->scale);
-    V2 screen = v2_add(scaled, (V2){WINDOW_WIDTH / 2.0f, WINDOW_HEIGHT / 2.0f});
+    V2 screen = v2_add(scaled, (V2){VIEWPORT_WIDTH / 2.0f, WINDOW_HEIGHT / 2.0f});
     return screen;
 }
 
-// Transform screen coordinates to world coordinates using camera
+// Transform screen coordinates to world coordinates using camera (within viewport)
 V2 screen_to_world(V2 screen, Camera* camera) {
-    V2 centered = v2_sub(screen, (V2){WINDOW_WIDTH / 2.0f, WINDOW_HEIGHT / 2.0f});
+    V2 centered = v2_sub(screen, (V2){VIEWPORT_WIDTH / 2.0f, WINDOW_HEIGHT / 2.0f});
     V2 unscaled = v2_scale(centered, 1.0f / camera->scale);
     V2 world = v2_add(unscaled, camera->offset);
     return world;
@@ -354,10 +356,27 @@ void draw_circle(SDL_Renderer* renderer, V2 center, float radius) {
     }
 }
 
+void render_ui_panel(AppState* state) {
+    // Draw UI panel background
+    SDL_SetRenderDrawColor(state->renderer, 40, 40, 45, 255);
+    SDL_Rect panel_rect = {VIEWPORT_WIDTH, 0, UI_PANEL_WIDTH, WINDOW_HEIGHT};
+    SDL_RenderFillRect(state->renderer, &panel_rect);
+    
+    // Draw panel border
+    SDL_SetRenderDrawColor(state->renderer, 60, 60, 65, 255);
+    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT);
+    
+    // TODO: Add UI elements here
+}
+
 void render(AppState* state) {
     // Clear screen
     SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
     SDL_RenderClear(state->renderer);
+    
+    // Set viewport clipping for left side
+    SDL_Rect viewport = {0, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT};
+    SDL_RenderSetClipRect(state->renderer, &viewport);
     
     // Draw bounding square outline
     SDL_SetRenderDrawColor(state->renderer, 100, 100, 100, 255);
@@ -431,6 +450,12 @@ void render(AppState* state) {
         draw_line_cam(state, selected, state->diagonal.end);
     }
     
+    // Clear clipping rect to draw UI
+    SDL_RenderSetClipRect(state->renderer, NULL);
+    
+    // Render UI panel on the right
+    render_ui_panel(state);
+    
     SDL_RenderPresent(state->renderer);
 }
 
@@ -446,6 +471,12 @@ Corner detect_corner_click(AppState* state, V2 mouse) {
 }
 
 void handle_mouse_click(AppState* state, int x, int y) {
+    // Only handle clicks within the viewport
+    if (x >= VIEWPORT_WIDTH) {
+        // Click is in UI panel - handle UI interactions here
+        return;
+    }
+    
     V2 mouse = {(float)x, (float)y};
     Corner clicked = detect_corner_click(state, mouse);
     
@@ -604,11 +635,11 @@ int main(int argc, char* argv[]) {
     state.selected_corner = CORNER_BR;  // Start with bottom-right selected
     state.selected_kind = KIND_UNIT;    // Start with unit squares selected
     state.previous_kind = KIND_UNIT;    // Initialize previous kind
-    state.bounding_center = (V2){WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2};
+    state.bounding_center = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center in viewport
     state.bounding_half = (BOUNDING_SIZE - BOUNDING_PADDING) / 2;
     
-    // Initialize camera
-    state.camera.offset = (V2){WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center of world
+    // Initialize camera (centered in viewport)
+    state.camera.offset = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center of viewport
     state.camera.scale = 1.0f;  // Default zoom
     state.dragging = false;
     
@@ -670,10 +701,12 @@ int main(int argc, char* argv[]) {
                     } else if (event.button.button == SDL_BUTTON_RIGHT || 
                               event.button.button == SDL_BUTTON_MIDDLE ||
                               (event.button.button == SDL_BUTTON_LEFT && (SDL_GetModState() & KMOD_SHIFT))) {
-                        // Start dragging with right/middle mouse or shift+left click
-                        state.dragging = true;
-                        state.drag_start = (V2){(float)event.button.x, (float)event.button.y};
-                        state.camera_start = state.camera.offset;
+                        // Start dragging only if in viewport
+                        if (event.button.x < VIEWPORT_WIDTH) {
+                            state.dragging = true;
+                            state.drag_start = (V2){(float)event.button.x, (float)event.button.y};
+                            state.camera_start = state.camera.offset;
+                        }
                     }
                     break;
                     
@@ -698,6 +731,12 @@ int main(int argc, char* argv[]) {
                         // Get mouse position for zoom center
                         int mouse_x, mouse_y;
                         SDL_GetMouseState(&mouse_x, &mouse_y);
+                        
+                        // Only zoom if mouse is in viewport
+                        if (mouse_x >= VIEWPORT_WIDTH) {
+                            break;
+                        }
+                        
                         V2 mouse_screen = {(float)mouse_x, (float)mouse_y};
                         V2 mouse_world_before = screen_to_world(mouse_screen, &state.camera);
                         
