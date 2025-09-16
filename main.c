@@ -903,14 +903,22 @@ int main(int argc, char* argv[]) {
                         
                         // Sliver camera controls
                         case SDLK_LEFT:
-                            // Zoom out sliver (show more range)
-                            state.sliver_camera.scale /= 1.2f;
-                            if (state.sliver_camera.scale < 0.01f) state.sliver_camera.scale = 0.01f;  // Min zoom: show 100 units
+                            {
+                                // Zoom out sliver from center (show more range)
+                                float center = state.sliver_camera.offset + 0.5f / state.sliver_camera.scale;
+                                state.sliver_camera.scale /= 1.2f;
+                                if (state.sliver_camera.scale < 0.01f) state.sliver_camera.scale = 0.01f;  // Min zoom: show 100 units
+                                state.sliver_camera.offset = center - 0.5f / state.sliver_camera.scale;
+                            }
                             break;
                         case SDLK_RIGHT:
-                            // Zoom in sliver (show less range)
-                            state.sliver_camera.scale *= 1.2f;
-                            if (state.sliver_camera.scale > 2.0f) state.sliver_camera.scale = 2.0f;  // Max zoom: show 0.5 units
+                            {
+                                // Zoom in sliver from center (show less range)
+                                float center = state.sliver_camera.offset + 0.5f / state.sliver_camera.scale;
+                                state.sliver_camera.scale *= 1.2f;
+                                if (state.sliver_camera.scale > 2.0f) state.sliver_camera.scale = 2.0f;  // Max zoom: show 0.5 units
+                                state.sliver_camera.offset = center - 0.5f / state.sliver_camera.scale;
+                            }
                             break;
                         case SDLK_UP:
                             // Pan sliver view left (move by 1 unit in the 0-10 space)
