@@ -149,6 +149,44 @@ The sliver camera controls how squares are positioned along the diagonal:
 
 This is separate from the 2D viewport camera which moves the entire rendered scene.
 
+## UI Implementation
+
+### Text Rendering with Supersampling
+Implemented text rendering using SDL_ttf with a supersampling technique for improved quality:
+- Font loaded at 2x the desired size (36pt instead of 18pt)
+- Text rendered at double resolution then scaled down by half
+- Results in smoother, anti-aliased text especially on HiDPI displays
+- Used SourceCodePro-Regular.ttf for consistent monospace appearance
+
+### Layout Management
+Created a `Layout` struct for managing UI element positioning:
+```c
+typedef struct {
+    V2 next;  // Next position to draw at
+    V2 max;   // Maximum bounds for layout
+} Layout;
+```
+- `advance_layout()` function automatically moves to next position
+- Prevents overflow by capping at max bounds
+- Enables structured vertical layout of band summaries
+
+### Band Summary Display
+The UI panel displays real-time information about bands:
+- Band type (Unit, Offset, Half, Large)
+- Starting position in 0-10 coordinate space
+- Size of intervals
+- Stride and repeat count for multi-interval bands
+- Each band shown in its associated color
+
+### Centered Zoom for Sliver Camera
+Modified zoom behavior to maintain center point during scaling:
+```c
+float center = state.sliver_camera.offset + 0.5f / state.sliver_camera.scale;
+state.sliver_camera.scale *= zoom_factor;
+state.sliver_camera.offset = center - 0.5f / state.sliver_camera.scale;
+```
+This ensures the center of the visible range stays fixed while zooming, providing more intuitive navigation through the 1D parameter space.
+
 ## Lessons Learned
 
 ### Rounded Rectangle Corner Alignment

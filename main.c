@@ -95,10 +95,26 @@ typedef struct {
     float scale;   // Scale in parameter space (1.0 = show full [0,1], 0.5 = show twice as much)
 } SliverCamera;
 
+// Geometry buffer for efficient rendering
+typedef struct {
+    SDL_Vertex* vertices;
+    int* indices;
+    size_t vertex_count;
+    size_t index_count;
+    size_t vertex_capacity;
+    size_t index_capacity;
+} GeometryBuffer;
+
+typedef struct {
+    GeometryBuffer geometry;
+    SDL_Texture* white_texture;  // 1x1 white texture for solid colors
+} RenderContext;
+
 typedef struct {
     SDL_Window* window;
     SDL_Renderer* renderer;
     TTF_Font* font;
+    RenderContext render_ctx;
     V2 bounding_center;
     float bounding_half;
     Corner selected_corner;
@@ -219,6 +235,169 @@ float ease_out_bounce(float t) {
 void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius);
 void draw_circle(SDL_Renderer* renderer, V2 center, float radius);
 void render_band_summaries(AppState* state);
+
+// Geometry buffer functions
+void geometry_buffer_init(GeometryBuffer* gb, size_t initial_vertex_capacity, size_t initial_index_capacity) {
+    gb->vertex_capacity = initial_vertex_capacity;
+    gb->index_capacity = initial_index_capacity;
+    gb->vertices = malloc(sizeof(SDL_Vertex) * gb->vertex_capacity);
+    gb->indices = malloc(sizeof(int) * gb->index_capacity);
+    gb->vertex_count = 0;
+    gb->index_count = 0;
+}
+
+void geometry_buffer_free(GeometryBuffer* gb) {
+    free(gb->vertices);
+    free(gb->indices);
+    gb->vertices = NULL;
+    gb->indices = NULL;
+    gb->vertex_capacity = 0;
+    gb->index_capacity = 0;
+    gb->vertex_count = 0;
+    gb->index_count = 0;
+}
+
+void geometry_buffer_clear(GeometryBuffer* gb) {
+    gb->vertex_count = 0;
+    gb->index_count = 0;
+}
+
+void geometry_buffer_ensure_capacity(GeometryBuffer* gb, size_t vertex_count, size_t index_count) {
+    if (gb->vertex_count + vertex_count > gb->vertex_capacity) {
+        size_t new_capacity = gb->vertex_capacity * 2;
+        while (new_capacity < gb->vertex_count + vertex_count) {
+            new_capacity *= 2;
+        }
+        gb->vertices = realloc(gb->vertices, sizeof(SDL_Vertex) * new_capacity);
+        gb->vertex_capacity = new_capacity;
+    }
+    
+    if (gb->index_count + index_count > gb->index_capacity) {
+        size_t new_capacity = gb->index_capacity * 2;
+        while (new_capacity < gb->index_count + index_count) {
+            new_capacity *= 2;
+        }
+        gb->indices = realloc(gb->indices, sizeof(int) * new_capacity);
+        gb->index_capacity = new_capacity;
+    }
+}
+
+// Add a thick line as a quad to the geometry buffer
+void geometry_buffer_add_line(GeometryBuffer* gb, V2 p1, V2 p2, float thickness, SDL_Color color) {
+    geometry_buffer_ensure_capacity(gb, 4, 6);
+    
+    // Calculate perpendicular direction
+    V2 dir = v2_sub(p2, p1);
+    float len = v2_length(dir);
+    if (len == 0) return;
+    
+    dir = v2_scale(dir, 1.0f / len);
+    V2 perp = {-dir.y * thickness * 0.5f, dir.x * thickness * 0.5f};
+    
+    // Add vertices
+    size_t base_vertex = gb->vertex_count;
+    
+    gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+        .position = {p1.x - perp.x, p1.y - perp.y},
+        .color = {color.r, color.g, color.b, color.a},
+        .tex_coord = {0, 0}
+    };
+    gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+        .position = {p1.x + perp.x, p1.y + perp.y},
+        .color = {color.r, color.g, color.b, color.a},
+        .tex_coord = {0, 0}
+    };
+    gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+        .position = {p2.x + perp.x, p2.y + perp.y},
+        .color = {color.r, color.g, color.b, color.a},
+        .tex_coord = {0, 0}
+    };
+    gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+        .position = {p2.x - perp.x, p2.y - perp.y},
+        .color = {color.r, color.g, color.b, color.a},
+        .tex_coord = {0, 0}
+    };
+    
+    // Add indices for two triangles
+    gb->indices[gb->index_count++] = base_vertex + 0;
+    gb->indices[gb->index_count++] = base_vertex + 1;
+    gb->indices[gb->index_count++] = base_vertex + 2;
+    
+    gb->indices[gb->index_count++] = base_vertex + 0;
+    gb->indices[gb->index_count++] = base_vertex + 2;
+    gb->indices[gb->index_count++] = base_vertex + 3;
+}
+
+// Add an arc using multiple quads
+void geometry_buffer_add_arc(GeometryBuffer* gb, V2 center, float radius, float start_angle, float end_angle, float thickness, SDL_Color color, int segments) {
+    if (segments < 2) segments = 2;
+    
+    float angle_step = (end_angle - start_angle) / segments;
+    
+    for (int i = 0; i < segments; i++) {
+        float a1 = start_angle + i * angle_step;
+        float a2 = start_angle + (i + 1) * angle_step;
+        
+        float inner_radius = radius - thickness * 0.5f;
+        float outer_radius = radius + thickness * 0.5f;
+        
+        V2 inner1 = {center.x + inner_radius * cosf(a1), center.y + inner_radius * sinf(a1)};
+        V2 outer1 = {center.x + outer_radius * cosf(a1), center.y + outer_radius * sinf(a1)};
+        V2 inner2 = {center.x + inner_radius * cosf(a2), center.y + inner_radius * sinf(a2)};
+        V2 outer2 = {center.x + outer_radius * cosf(a2), center.y + outer_radius * sinf(a2)};
+        
+        // Add quad for this segment
+        geometry_buffer_ensure_capacity(gb, 4, 6);
+        size_t base_vertex = gb->vertex_count;
+        
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {inner1.x, inner1.y},
+            .color = {color.r, color.g, color.b, color.a},
+            .tex_coord = {0, 0}
+        };
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {outer1.x, outer1.y},
+            .color = {color.r, color.g, color.b, color.a},
+            .tex_coord = {0, 0}
+        };
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {outer2.x, outer2.y},
+            .color = {color.r, color.g, color.b, color.a},
+            .tex_coord = {0, 0}
+        };
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {inner2.x, inner2.y},
+            .color = {color.r, color.g, color.b, color.a},
+            .tex_coord = {0, 0}
+        };
+        
+        gb->indices[gb->index_count++] = base_vertex + 0;
+        gb->indices[gb->index_count++] = base_vertex + 1;
+        gb->indices[gb->index_count++] = base_vertex + 2;
+        
+        gb->indices[gb->index_count++] = base_vertex + 0;
+        gb->indices[gb->index_count++] = base_vertex + 2;
+        gb->indices[gb->index_count++] = base_vertex + 3;
+    }
+}
+
+void render_context_init(RenderContext* ctx, SDL_Renderer* renderer) {
+    geometry_buffer_init(&ctx->geometry, 1024, 1024 * 3);
+    
+    // Create a 1x1 white texture for solid colors
+    ctx->white_texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, 
+                                           SDL_TEXTUREACCESS_STATIC, 1, 1);
+    Uint32 white_pixel = 0xFFFFFFFF;
+    SDL_UpdateTexture(ctx->white_texture, NULL, &white_pixel, 4);
+}
+
+void render_context_free(RenderContext* ctx) {
+    geometry_buffer_free(&ctx->geometry);
+    if (ctx->white_texture) {
+        SDL_DestroyTexture(ctx->white_texture);
+        ctx->white_texture = NULL;
+    }
+}
 
 void draw_line(SDL_Renderer* renderer, V2 p1, V2 p2) {
     SDL_RenderDrawLine(renderer, p1.x, p1.y, p2.x, p2.y);
@@ -465,42 +644,113 @@ void render_band_summaries(AppState* state) {
     }
 }
 
+// Draw rounded rectangle with geometry buffer
+void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, float radius, SDL_Color color, Camera* camera) {
+    if (radius <= 0) {
+        // Draw regular rectangle with thick lines
+        V2 tl = world_to_screen((V2){x, y}, camera);
+        V2 tr = world_to_screen((V2){x + w, y}, camera);
+        V2 br = world_to_screen((V2){x + w, y + h}, camera);
+        V2 bl = world_to_screen((V2){x, y + h}, camera);
+        
+        geometry_buffer_add_line(gb, tl, tr, 2.0f, color);
+        geometry_buffer_add_line(gb, tr, br, 2.0f, color);
+        geometry_buffer_add_line(gb, br, bl, 2.0f, color);
+        geometry_buffer_add_line(gb, bl, tl, 2.0f, color);
+    } else {
+        // Draw rounded rectangle with arcs at corners
+        V2 tl_inner = world_to_screen((V2){x + radius, y + radius}, camera);
+        V2 tr_inner = world_to_screen((V2){x + w - radius, y + radius}, camera);
+        V2 br_inner = world_to_screen((V2){x + w - radius, y + h - radius}, camera);
+        V2 bl_inner = world_to_screen((V2){x + radius, y + h - radius}, camera);
+        
+        // Top line
+        geometry_buffer_add_line(gb, 
+            world_to_screen((V2){x + radius, y}, camera),
+            world_to_screen((V2){x + w - radius, y}, camera),
+            2.0f, color);
+        
+        // Right line
+        geometry_buffer_add_line(gb,
+            world_to_screen((V2){x + w, y + radius}, camera),
+            world_to_screen((V2){x + w, y + h - radius}, camera),
+            2.0f, color);
+        
+        // Bottom line
+        geometry_buffer_add_line(gb,
+            world_to_screen((V2){x + w - radius, y + h}, camera),
+            world_to_screen((V2){x + radius, y + h}, camera),
+            2.0f, color);
+        
+        // Left line
+        geometry_buffer_add_line(gb,
+            world_to_screen((V2){x, y + h - radius}, camera),
+            world_to_screen((V2){x, y + radius}, camera),
+            2.0f, color);
+        
+        // Calculate screen radius
+        float screen_radius = radius * camera->scale;
+        
+        // Corner arcs
+        geometry_buffer_add_arc(gb, tl_inner, screen_radius, M_PI, M_PI * 1.5f, 2.0f, color, 8);
+        geometry_buffer_add_arc(gb, tr_inner, screen_radius, M_PI * 1.5f, M_PI * 2.0f, 2.0f, color, 8);
+        geometry_buffer_add_arc(gb, br_inner, screen_radius, 0, M_PI * 0.5f, 2.0f, color, 8);
+        geometry_buffer_add_arc(gb, bl_inner, screen_radius, M_PI * 0.5f, M_PI, 2.0f, color, 8);
+    }
+}
+
 void render(AppState* state) {
     // Clear screen
     SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
     SDL_RenderClear(state->renderer);
     
+    // Clear geometry buffer for new frame
+    geometry_buffer_clear(&state->render_ctx.geometry);
+    
     // Set viewport clipping for left side
     SDL_Rect viewport = {0, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT};
     SDL_RenderSetClipRect(state->renderer, &viewport);
     
-    // Draw bounding square outline
-    SDL_SetRenderDrawColor(state->renderer, 100, 100, 100, 255);
+    // Draw bounding square outline using geometry buffer
+    SDL_Color gray = {100, 100, 100, 255};
     V2 tl = get_corner_position(state, CORNER_TL);
     V2 tr = get_corner_position(state, CORNER_TR);
     V2 br = get_corner_position(state, CORNER_BR);
     V2 bl = get_corner_position(state, CORNER_BL);
-    draw_line_cam(state, tl, tr);
-    draw_line_cam(state, tr, br);
-    draw_line_cam(state, br, bl);
-    draw_line_cam(state, bl, tl);
     
-    // Draw corner indicators
+    V2 tl_s = world_to_screen(tl, &state->camera);
+    V2 tr_s = world_to_screen(tr, &state->camera);
+    V2 br_s = world_to_screen(br, &state->camera);
+    V2 bl_s = world_to_screen(bl, &state->camera);
+    
+    geometry_buffer_add_line(&state->render_ctx.geometry, tl_s, tr_s, 2.0f, gray);
+    geometry_buffer_add_line(&state->render_ctx.geometry, tr_s, br_s, 2.0f, gray);
+    geometry_buffer_add_line(&state->render_ctx.geometry, br_s, bl_s, 2.0f, gray);
+    geometry_buffer_add_line(&state->render_ctx.geometry, bl_s, tl_s, 2.0f, gray);
+    
+    // Draw corner indicators using geometry buffer
     for (int i = 0; i < 4; i++) {
         V2 corner = get_corner_position(state, i);
+        V2 corner_s = world_to_screen(corner, &state->camera);
         if (i == state->selected_corner) {
-            SDL_SetRenderDrawColor(state->renderer, 255, 200, 100, 255);
-            draw_circle_cam(state, corner, HIGHLIGHT_SIZE);
+            SDL_Color highlight = {255, 200, 100, 255};
+            geometry_buffer_add_arc(&state->render_ctx.geometry, corner_s, 
+                                   HIGHLIGHT_SIZE * state->camera.scale, 
+                                   0, M_PI * 2.0f, 2.0f, highlight, 16);
         } else {
-            SDL_SetRenderDrawColor(state->renderer, 150, 150, 150, 255);
-            draw_circle_cam(state, corner, HIGHLIGHT_SIZE / 2);
+            SDL_Color gray = {150, 150, 150, 255};
+            geometry_buffer_add_arc(&state->render_ctx.geometry, corner_s,
+                                   (HIGHLIGHT_SIZE / 2) * state->camera.scale,
+                                   0, M_PI * 2.0f, 2.0f, gray, 12);
         }
     }
     
     if (state->selected_corner != CORNER_NONE) {
-        // Draw diagonal
-        SDL_SetRenderDrawColor(state->renderer, 200, 200, 255, 255);
-        draw_line_cam(state, state->diagonal.start, state->diagonal.end);
+        // Draw diagonal using geometry buffer
+        SDL_Color diagonal_color = {200, 200, 255, 255};
+        V2 diag_start_s = world_to_screen(state->diagonal.start, &state->camera);
+        V2 diag_end_s = world_to_screen(state->diagonal.end, &state->camera);
+        geometry_buffer_add_line(&state->render_ctx.geometry, diag_start_s, diag_end_s, 2.0f, diagonal_color);
         
         // Draw squares along diagonal
         for (size_t i = 0; i < state->squares.length; i++) {
@@ -524,8 +774,6 @@ void render(AppState* state) {
             V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.start);
             V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.end);
             
-            SDL_SetRenderDrawColor(state->renderer, sq->color.r, sq->color.g, sq->color.b, sq->color.a);
-            
             // Animate both entering and exiting kinds
             bool should_round = false;
             float radius_factor = 1.0f;
@@ -538,13 +786,41 @@ void render(AppState* state) {
                 radius_factor = 1.0f - state->radius_animation;  // Animating out
             }
             
-            draw_square_cam(state, p1, p2, should_round, radius_factor);
+            // Draw square using geometry buffer
+            float min_x = fminf(p1.x, p2.x);
+            float max_x = fmaxf(p1.x, p2.x);
+            float min_y = fminf(p1.y, p2.y);
+            float max_y = fmaxf(p1.y, p2.y);
+            
+            if (should_round) {
+                float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
+                float radius = base_radius * radius_factor;
+                float extend = radius * (1.0f - 1.0f/sqrtf(2));
+                draw_rounded_rect_geometry(&state->render_ctx.geometry, 
+                                          min_x - extend, min_y - extend, 
+                                          (max_x - min_x) + 2 * extend, 
+                                          (max_y - min_y) + 2 * extend, 
+                                          radius, sq->color, &state->camera);
+            } else {
+                draw_rounded_rect_geometry(&state->render_ctx.geometry, 
+                                          min_x, min_y, max_x - min_x, max_y - min_y, 
+                                          0, sq->color, &state->camera);
+            }
         }
         
-        // Draw orientation edge from selected corner
+        // Draw orientation edge from selected corner using geometry buffer
         V2 selected = get_corner_position(state, state->selected_corner);
-        SDL_SetRenderDrawColor(state->renderer, 255, 100, 100, 255);
-        draw_line_cam(state, selected, state->diagonal.end);
+        V2 selected_s = world_to_screen(selected, &state->camera);
+        V2 orient_end_s = world_to_screen(state->diagonal.end, &state->camera);
+        SDL_Color orient_color = {255, 100, 100, 255};
+        geometry_buffer_add_line(&state->render_ctx.geometry, selected_s, orient_end_s, 2.0f, orient_color);
+    }
+    
+    // Render all geometry in one batch
+    if (state->render_ctx.geometry.index_count > 0) {
+        SDL_RenderGeometry(state->renderer, state->render_ctx.white_texture,
+                          state->render_ctx.geometry.vertices, state->render_ctx.geometry.vertex_count,
+                          state->render_ctx.geometry.indices, state->render_ctx.geometry.index_count);
     }
     
     // Clear clipping rect to draw UI
@@ -775,6 +1051,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    // Initialize render context
+    render_context_init(&state.render_ctx, state.renderer);
+    
     // Set up logical size for consistent coordinates
     SDL_RenderSetLogicalSize(state.renderer, WINDOW_WIDTH, WINDOW_HEIGHT);
     
@@ -961,6 +1240,7 @@ int main(int argc, char* argv[]) {
     // Cleanup
     band_array_free(&state.bands);
     square_array_free(&state.squares);
+    render_context_free(&state.render_ctx);
     if (state.font) {
         TTF_CloseFont(state.font);
     }
