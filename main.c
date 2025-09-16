@@ -21,12 +21,28 @@ typedef struct {
     float start, end;
 } Interval;
 
+typedef enum {
+    KIND_UNIT = 0,      // Sequence 1: unit squares
+    KIND_OFFSET = 1,    // Sequence 2: offset squares
+    KIND_HALF = 2,      // Sequence 3: half-unit squares
+    KIND_LARGE = 3,     // Sequence 4: large square
+    KIND_COUNT = 4
+} SquareKind;
+
 typedef struct {
     float start;   // Starting position of first interval
     float size;    // Size of each interval
     float stride;  // Distance between interval starts
     int repeat;    // Number of additional intervals (0 = single interval, n = n+1 total intervals)
+    SquareKind kind;  // The kind/type of squares in this band
+    SDL_Color color;  // Color for squares in this band
 } Band;
+
+typedef struct {
+    Band* ptr;        // Pointer to dynamically allocated array
+    size_t length;    // Number of bands currently in use
+    size_t capacity;  // Total allocated capacity
+} BandArray;
 
 V2 v2_add(V2 a, V2 b) { return (V2){a.x + b.x, a.y + b.y}; }
 V2 v2_sub(V2 a, V2 b) { return (V2){a.x - b.x, a.y - b.y}; }
@@ -38,14 +54,6 @@ float v2_length(V2 v) { return sqrtf(v.x * v.x + v.y * v.y); }
 typedef struct {
     V2 start, end;
 } Diagonal;
-
-typedef enum {
-    KIND_UNIT = 0,      // Sequence 1: unit squares
-    KIND_OFFSET = 1,    // Sequence 2: offset squares
-    KIND_HALF = 2,      // Sequence 3: half-unit squares
-    KIND_LARGE = 3,     // Sequence 4: large square
-    KIND_COUNT = 4
-} SquareKind;
 
 typedef struct {
     Interval interval;  // position along diagonal [0,1]
@@ -86,6 +94,7 @@ typedef struct {
     float bounding_half;
     Corner selected_corner;
     Diagonal diagonal;
+    BandArray bands;      // Dynamic array of band definitions
     SquareArray squares;  // Dynamic array of squares
     SquareKind selected_kind;
     SquareKind previous_kind;  // For exit animation
@@ -446,6 +455,33 @@ void handle_mouse_click(AppState* state, int x, int y) {
     }
 }
 
+// BandArray management functions
+void band_array_init(BandArray* arr, size_t initial_capacity) {
+    arr->ptr = (Band*)malloc(initial_capacity * sizeof(Band));
+    arr->length = 0;
+    arr->capacity = initial_capacity;
+}
+
+void band_array_free(BandArray* arr) {
+    free(arr->ptr);
+    arr->ptr = NULL;
+    arr->length = 0;
+    arr->capacity = 0;
+}
+
+void band_array_add(BandArray* arr, Band band) {
+    if (arr->length >= arr->capacity) {
+        size_t new_capacity = arr->capacity * 2;
+        arr->ptr = (Band*)realloc(arr->ptr, new_capacity * sizeof(Band));
+        arr->capacity = new_capacity;
+    }
+    arr->ptr[arr->length++] = band;
+}
+
+void band_array_clear(BandArray* arr) {
+    arr->length = 0;
+}
+
 // SquareArray management functions
 void square_array_init(SquareArray* arr, size_t initial_capacity) {
     arr->ptr = (Square*)malloc(initial_capacity * sizeof(Square));
@@ -476,7 +512,7 @@ void square_array_clear(SquareArray* arr) {
 }
 
 // Generate intervals from a Band definition into SquareArray
-void generate_intervals_from_band(SquareArray* arr, Band* band, SDL_Color color, SquareKind kind) {
+void generate_intervals_from_band(SquareArray* arr, Band* band) {
     int count = band->repeat + 1;  // repeat=0 means 1 interval, repeat=n means n+1 intervals
     
     size_t start_idx = arr->length;
@@ -486,57 +522,69 @@ void generate_intervals_from_band(SquareArray* arr, Band* band, SDL_Color color,
         float interval_start = band->start + i * band->stride;
         arr->ptr[start_idx + i].interval.start = interval_start;
         arr->ptr[start_idx + i].interval.end = interval_start + band->size;
-        arr->ptr[start_idx + i].color = color;
-        arr->ptr[start_idx + i].kind = kind;
+        arr->ptr[start_idx + i].color = band->color;  // Use color from Band
+        arr->ptr[start_idx + i].kind = band->kind;    // Use kind from Band
     }
     
     arr->length += count;
 }
 
-void init_squares(AppState* state) {
-    // Clear existing squares
+// Generate all squares from bands
+void generate_squares_from_bands(AppState* state) {
     square_array_clear(&state->squares);
+    
+    for (size_t i = 0; i < state->bands.length; i++) {
+        generate_intervals_from_band(&state->squares, &state->bands.ptr[i]);
+    }
+}
+
+void init_bands(AppState* state) {
+    // Clear existing bands
+    band_array_clear(&state->bands);
     
     // Define bands for each sequence
     // Sequence 1: 10 unit squares (0-1, 1-2, ..., 9-10) in dark gray
-    Band band1 = {
+    band_array_add(&state->bands, (Band){
         .start = 0.0f,
         .size = 0.1f,   // 1/10 size
         .stride = 0.1f,  // 1/10 spacing
-        .repeat = 9      // 10 total intervals
-    };
-    generate_intervals_from_band(&state->squares, &band1, 
-                                (SDL_Color){60, 60, 60, 255}, KIND_UNIT);
+        .repeat = 9,     // 10 total intervals
+        .kind = KIND_UNIT,
+        .color = {60, 60, 60, 255}  // Dark gray
+    });
     
     // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
-    Band band2 = {
+    band_array_add(&state->bands, (Band){
         .start = 0.03f,   // 0.3/10
         .size = 0.1f,     // 1/10 size
         .stride = 0.1f,   // 1/10 spacing
-        .repeat = 7       // 8 total intervals
-    };
-    generate_intervals_from_band(&state->squares, &band2,
-                                (SDL_Color){100, 150, 200, 255}, KIND_OFFSET);
+        .repeat = 7,      // 8 total intervals
+        .kind = KIND_OFFSET,
+        .color = {100, 150, 200, 255}  // Blue
+    });
     
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
-    Band band3 = {
+    band_array_add(&state->bands, (Band){
         .start = 0.02f,   // 0.2/10
         .size = 0.05f,    // 0.5/10 size
         .stride = 0.1f,   // 1/10 spacing
-        .repeat = 4       // 5 total intervals
-    };
-    generate_intervals_from_band(&state->squares, &band3,
-                                (SDL_Color){200, 150, 100, 255}, KIND_HALF);
+        .repeat = 4,      // 5 total intervals
+        .kind = KIND_HALF,
+        .color = {200, 150, 100, 255}  // Orange
+    });
     
     // Sequence 4: single square at 6.6-8.7
-    Band band4 = {
+    band_array_add(&state->bands, (Band){
         .start = 0.66f,   // 6.6/10
         .size = 0.21f,    // 2.1/10 size
         .stride = 0.0f,   // No stride needed for single square
-        .repeat = 0       // Single interval
-    };
-    generate_intervals_from_band(&state->squares, &band4,
-                                (SDL_Color){150, 200, 150, 255}, KIND_LARGE);
+        .repeat = 0,      // Single interval
+        .kind = KIND_LARGE,
+        .color = {150, 200, 150, 255}  // Green
+    });
+    
+    // Generate squares from bands
+    generate_squares_from_bands(state);
 }
 
 void start_animation(AppState* state) {
@@ -568,7 +616,8 @@ int main(int argc, char* argv[]) {
     state.sliver_camera.offset = 0.0f;  // No offset, centered at origin
     state.sliver_camera.scale = 1.0f;   // Show full [0,1] range
     
-    // Initialize SquareArray with initial capacity
+    // Initialize dynamic arrays
+    band_array_init(&state.bands, 10);
     square_array_init(&state.squares, 50);
     
     // Create window with HiDPI support (from ../sd) 
@@ -604,7 +653,7 @@ int main(int argc, char* argv[]) {
     }
     
     calculate_diagonal(&state);
-    init_squares(&state);
+    init_bands(&state);
     start_animation(&state);  // Start initial animation
     
     SDL_Event event;
@@ -694,11 +743,11 @@ int main(int argc, char* argv[]) {
                             break;
                         case SDLK_SPACE:
                             // Reset to original square definitions
-                            init_squares(&state);
+                            init_bands(&state);
                             break;
                         case SDLK_r:
                             // Reset squares
-                            init_squares(&state);
+                            init_bands(&state);
                             break;
                         
                         // Sliver camera controls
@@ -751,6 +800,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Cleanup
+    band_array_free(&state.bands);
     square_array_free(&state.squares);
     SDL_DestroyRenderer(state.renderer);
     SDL_DestroyWindow(state.window);
