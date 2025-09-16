@@ -44,6 +44,7 @@ typedef struct {
     int repeat;    // Number of additional intervals (0 = single interval, n = n+1 total intervals)
     SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
     SDL_Color color;  // Color for squares in this band
+    int wavelength_scale;  // Multiplier for wavelength when kind is WAVE
 } Band;
 
 typedef struct {
@@ -67,6 +68,7 @@ typedef struct {
     Interval interval;  // position along diagonal [0,1]
     SDL_Color color;
     SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
+    int wavelength_scale;  // Wavelength multiplier for WAVE kind
 } Square;
 
 typedef struct {
@@ -673,6 +675,35 @@ void render_band_summaries(AppState* state) {
             generate_squares_from_bands(state);
         }
         
+        // If WAVE kind, show wavelength controls
+        if (band->kind == KIND_WAVE) {
+            // Decrement button
+            V2 dec_pos = {button_pos.x + button_size.x + 10, layout.next.y};
+            V2 small_button_size = {20, 22};
+            if (render_button(state, "-", dec_pos, small_button_size, false)) {
+                if (band->wavelength_scale > 1) {
+                    band->wavelength_scale--;
+                    generate_squares_from_bands(state);
+                }
+            }
+            
+            // Show current value
+            char scale_text[32];
+            snprintf(scale_text, sizeof(scale_text), "%d", band->wavelength_scale);
+            V2 text_pos = {dec_pos.x + small_button_size.x + 5, layout.next.y};
+            SDL_Color white = {255, 255, 255, 255};
+            render_text(state, scale_text, text_pos, white);
+            
+            // Increment button
+            V2 inc_pos = {text_pos.x + 20, layout.next.y};
+            if (render_button(state, "+", inc_pos, small_button_size, false)) {
+                if (band->wavelength_scale < 10) {
+                    band->wavelength_scale++;
+                    generate_squares_from_bands(state);
+                }
+            }
+        }
+        
         advance_layout(&layout, 25);
         
         // Band details
@@ -746,10 +777,10 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
 }
 
 // Draw wave rectangle with geometry buffer
-void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera) {
+void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale) {
     float thickness = 2.0f;
-    float amplitude = thickness * 3.0f;  // Amplitude is 4x thickness
-    float wavelength = thickness * 8.0f;  // Wavelength is 8x thickness
+    float amplitude = thickness * 3.0f;  // Amplitude is 3x thickness
+    float wavelength = thickness * 8.0f * wavelength_scale;  // Wavelength is 8x thickness * scale
     
     // Convert world coordinates to screen
     V2 tl = world_to_screen((V2){x, y}, camera);
@@ -952,7 +983,7 @@ void render(AppState* state) {
                 case KIND_WAVE:
                     draw_wave_rect_geometry(&state->render_ctx.geometry,
                                           min_x, min_y, max_x - min_x, max_y - min_y,
-                                          sq->color, &state->camera);
+                                          sq->color, &state->camera, sq->wavelength_scale);
                     break;
                 case KIND_SHARP:
                 default:
@@ -1085,6 +1116,7 @@ void generate_intervals_from_band(SquareArray* arr, Band* band) {
         arr->ptr[start_idx + i].interval.end = interval_start + band->size;
         arr->ptr[start_idx + i].color = band->color;  // Use color from Band
         arr->ptr[start_idx + i].kind = band->kind;    // Use kind from Band
+        arr->ptr[start_idx + i].wavelength_scale = band->wavelength_scale;  // Use wavelength_scale from Band
     }
     
     arr->length += count;
@@ -1111,7 +1143,8 @@ void init_bands(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 9,     // 10 total intervals
         .kind = KIND_SHARP,
-        .color = {60, 60, 60, 255}  // Dark gray
+        .color = {60, 60, 60, 255},  // Dark gray
+        .wavelength_scale = 1
     });
     
     // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
@@ -1121,7 +1154,8 @@ void init_bands(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 7,     // 8 total intervals
         .kind = KIND_ROUNDED,
-        .color = {100, 150, 200, 255}  // Blue
+        .color = {100, 150, 200, 255},  // Blue
+        .wavelength_scale = 1
     });
     
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
@@ -1131,7 +1165,8 @@ void init_bands(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
         .kind = KIND_DOUBLE,
-        .color = {200, 150, 100, 255}  // Orange
+        .color = {200, 150, 100, 255},  // Orange
+        .wavelength_scale = 1
     });
     
     // Sequence 4: single square at 6.6-8.7
@@ -1141,7 +1176,8 @@ void init_bands(AppState* state) {
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
         .kind = KIND_WAVE,
-        .color = {150, 200, 150, 255}  // Green
+        .color = {150, 200, 150, 255},  // Green
+        .wavelength_scale = 2  // Start with 2x wavelength
     });
     
     // Generate squares from bands
