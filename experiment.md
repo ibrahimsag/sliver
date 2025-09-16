@@ -119,3 +119,60 @@ gcc -o squares squares.c `sdl2-config --cflags --libs` -lm
 3. Overlapping squares with transparency
 4. Animation: Squares sliding along the diagonal
 5. Rotation: Slowly rotate entire configuration around center
+
+## The Sliver Concept
+
+### Definition
+A "sliver" is a 2D view/projection of a 1D parameter space. It provides a window into a one-dimensional continuum, allowing you to:
+- **Offset**: Shift which portion of the parameter space is visible
+- **Scale**: Zoom in to see detail or zoom out to see more of the parameter range
+
+### Mathematical Foundation
+For a parameter `t` in range [0,1]:
+- `t_visible = (t - offset) * scale`
+- Values outside [0,1] after transformation are clipped or hidden
+- Intervals (start, end) are transformed as a unit
+
+### Application in This Project
+The sliver camera controls how squares are positioned along the diagonal:
+- Original square positions are defined in a normalized parameter space [0,1]
+- The sliver transformation windows into this space
+- Multiple squares can be defined beyond the visible range and brought into view by panning
+
+### Controls
+- **Arrow Keys**: Navigate the sliver space
+  - Left/Right: Pan along the parameter dimension
+  - Up/Down: Zoom in/out of the parameter range
+- **'0' Key**: Reset sliver camera to default view
+
+This is separate from the 2D viewport camera which moves the entire rendered scene.
+
+## Lessons Learned
+
+### Rounded Rectangle Corner Alignment
+When implementing rounded rectangles for squares on a 45° diagonal, we discovered that the corners don't naturally align when squares share diagonal endpoints. The key insight:
+
+1. **The Problem**: A rounded rectangle's arc at 45° is inset from the actual corner by `r * (1 - 1/√2)` where `r` is the corner radius.
+
+2. **The Solution**: To make the arcs of adjacent squares meet seamlessly at their shared diagonal point, we need to extend the rectangle dimensions by exactly `r * (1 - 1/√2)` on all sides.
+
+3. **Mathematical Basis**: 
+   - The 45° point on a quarter circle of radius `r` is at `(r/√2, r/√2)` from the circle center
+   - This point is inset from the corner by `r - r/√2 = r(1 - 1/√2)`
+   - By extending the rectangle, we move the arc centers outward so the 45° points align with the original diagonal endpoints
+
+### Animation Techniques
+1. **Bounce Easing**: Implemented `ease_out_bounce` function for natural, playful animation feel
+2. **Dual Animation**: Animating both entering (radius 0→1) and exiting (radius 1→0) elements simultaneously creates smooth transitions
+
+### SDL2 Rendering Optimizations
+1. **HiDPI Support**: Inherited from previous project, crucial for crisp rendering on high-resolution displays
+2. **Fullscreen Toggle**: F/F11 keys for fullscreen mode, useful for presentations
+3. **Logical Rendering Size**: Using `SDL_RenderSetLogicalSize` for consistent coordinate system regardless of window size
+
+### Code Organization Insights
+1. **Parameterization**: Using t ∈ [0,1] for positioning along diagonal, but accepting user definitions in different ranges (0-10) for convenience
+2. **State Management**: `AppState` struct containing all mutable state makes animation and interaction handling cleaner
+3. **Separation of Concerns**: `draw_square` function takes diagonal endpoints and handles all square rendering logic internally
+4. **Dual Camera System**: Separating 2D viewport navigation from 1D parameter space navigation provides intuitive control
+5. **Interval Abstraction**: Using `Interval` struct for (start, end) pairs makes transformations more composable
