@@ -128,22 +128,24 @@ A "sliver" is a 2D view/projection of a 1D parameter space. It provides a window
 - **Scale**: Zoom in to see detail or zoom out to see more of the parameter range
 
 ### Mathematical Foundation
-For a parameter `t` in range [0,1]:
-- `t_visible = (t - offset) * scale`
-- Values outside [0,1] after transformation are clipped or hidden
-- Intervals (start, end) are transformed as a unit
+- Bands and intervals are defined in natural 0-10 coordinate space
+- Sliver camera transforms these coordinates for display
+- For a parameter `t` in range [0,10]: `t_visible = (t - offset) * scale`
+- The transformed values are then normalized to [0,1] for diagonal interpolation
+- Values outside visible range after transformation are clipped
 
 ### Application in This Project
 The sliver camera controls how squares are positioned along the diagonal:
-- Original square positions are defined in a normalized parameter space [0,1]
-- The sliver transformation windows into this space
-- Multiple squares can be defined beyond the visible range and brought into view by panning
+- Band definitions use intuitive 0-10 coordinates (e.g., start=6.6, size=2.1)
+- Intervals are stored in the same 0-10 space
+- The sliver transformation windows into this 0-10 space
+- Scale of 0.1 shows the full 0-10 range, scale of 1.0 shows 1 unit
 
 ### Controls
 - **Arrow Keys**: Navigate the sliver space
-  - Left/Right: Pan along the parameter dimension
-  - Up/Down: Zoom in/out of the parameter range
-- **'0' Key**: Reset sliver camera to default view
+  - Left/Right: Zoom out/in (scale range: 0.01 to 2.0)
+  - Up/Down: Pan through the parameter space
+- **'0' Key**: Reset sliver camera to show full 0-10 range
 
 This is separate from the 2D viewport camera which moves the entire rendered scene.
 
@@ -182,3 +184,12 @@ When implementing rounded rectangles for squares on a 45° diagonal, we discover
    - `repeat` field: 0 generates single interval, n generates n+1 intervals total
    - Bands stored persistently in `BandArray`, squares generated on demand
    - Clean separation between data definition and rendering
+8. **Split Layout Architecture**:
+   - Viewport on left (1400px) for sliver rendering with clipping
+   - UI panel on right (520px) for future controls
+   - Mouse interactions bounded to viewport area
+   - Camera transforms adjusted for viewport centering
+9. **Natural Coordinate System**:
+   - Bands defined in intuitive 0-10 range
+   - Sliver camera manages view into this space
+   - Automatic normalization for diagonal interpolation
