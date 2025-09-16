@@ -410,9 +410,10 @@ void render(AppState* state) {
         for (size_t i = 0; i < state->squares.length; i++) {
             Square* sq = &state->squares.ptr[i];
             
-            // Apply sliver transform to the square's interval
+            // Apply sliver transform to the square's interval (from 0-10 space to viewport space)
             Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
             
+            // Convert to 0-1 range for diagonal lerp (divide by 10 since intervals are in 0-10)
             // Skip squares completely outside the visible range
             if ((transformed.start > 1.0f && transformed.end > 1.0f) || 
                 (transformed.start < 0.0f && transformed.end < 0.0f)) {
@@ -543,6 +544,7 @@ void square_array_clear(SquareArray* arr) {
 }
 
 // Generate intervals from a Band definition into SquareArray
+// Band values are in 0-10 range, stored as-is (sliver camera handles the scaling)
 void generate_intervals_from_band(SquareArray* arr, Band* band) {
     int count = band->repeat + 1;  // repeat=0 means 1 interval, repeat=n means n+1 intervals
     
@@ -551,6 +553,7 @@ void generate_intervals_from_band(SquareArray* arr, Band* band) {
     
     for (int i = 0; i < count; i++) {
         float interval_start = band->start + i * band->stride;
+        // Store in 0-10 range (sliver camera will handle the transform)
         arr->ptr[start_idx + i].interval.start = interval_start;
         arr->ptr[start_idx + i].interval.end = interval_start + band->size;
         arr->ptr[start_idx + i].color = band->color;  // Use color from Band
@@ -573,12 +576,12 @@ void init_bands(AppState* state) {
     // Clear existing bands
     band_array_clear(&state->bands);
     
-    // Define bands for each sequence
+    // Define bands for each sequence (using natural 0-10 range)
     // Sequence 1: 10 unit squares (0-1, 1-2, ..., 9-10) in dark gray
     band_array_add(&state->bands, (Band){
         .start = 0.0f,
-        .size = 0.1f,   // 1/10 size
-        .stride = 0.1f,  // 1/10 spacing
+        .size = 1.0f,    // Unit size
+        .stride = 1.0f,  // Unit spacing
         .repeat = 9,     // 10 total intervals
         .kind = KIND_UNIT,
         .color = {60, 60, 60, 255}  // Dark gray
@@ -586,30 +589,30 @@ void init_bands(AppState* state) {
     
     // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
     band_array_add(&state->bands, (Band){
-        .start = 0.03f,   // 0.3/10
-        .size = 0.1f,     // 1/10 size
-        .stride = 0.1f,   // 1/10 spacing
-        .repeat = 7,      // 8 total intervals
+        .start = 0.3f,
+        .size = 1.0f,    // Unit size
+        .stride = 1.0f,  // Unit spacing
+        .repeat = 7,     // 8 total intervals
         .kind = KIND_OFFSET,
         .color = {100, 150, 200, 255}  // Blue
     });
     
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
     band_array_add(&state->bands, (Band){
-        .start = 0.02f,   // 0.2/10
-        .size = 0.05f,    // 0.5/10 size
-        .stride = 0.1f,   // 1/10 spacing
-        .repeat = 4,      // 5 total intervals
+        .start = 0.2f,
+        .size = 0.5f,    // Half size
+        .stride = 1.0f,  // Unit spacing
+        .repeat = 4,     // 5 total intervals
         .kind = KIND_HALF,
         .color = {200, 150, 100, 255}  // Orange
     });
     
     // Sequence 4: single square at 6.6-8.7
     band_array_add(&state->bands, (Band){
-        .start = 0.66f,   // 6.6/10
-        .size = 0.21f,    // 2.1/10 size
-        .stride = 0.0f,   // No stride needed for single square
-        .repeat = 0,      // Single interval
+        .start = 6.6f,
+        .size = 2.1f,
+        .stride = 0.0f,  // No stride needed for single square
+        .repeat = 0,     // Single interval
         .kind = KIND_LARGE,
         .color = {150, 200, 150, 255}  // Green
     });
@@ -643,9 +646,9 @@ int main(int argc, char* argv[]) {
     state.camera.scale = 1.0f;  // Default zoom
     state.dragging = false;
     
-    // Initialize sliver camera (shows full parameter range by default)
-    state.sliver_camera.offset = 0.0f;  // No offset, centered at origin
-    state.sliver_camera.scale = 1.0f;   // Show full [0,1] range
+    // Initialize sliver camera to show 0-10 range
+    state.sliver_camera.offset = 0.0f;  // Start at 0
+    state.sliver_camera.scale = 0.1f;   // Scale 1:1 shows full 0-1 in viewport, which maps to 0-10 in our coordinates
     
     // Initialize dynamic arrays
     band_array_init(&state.bands, 10);
@@ -791,27 +794,27 @@ int main(int argc, char* argv[]) {
                         
                         // Sliver camera controls
                         case SDLK_LEFT:
-                            // Pan sliver view left
-                            state.sliver_camera.offset -= 0.1f / state.sliver_camera.scale;
-                            break;
-                        case SDLK_RIGHT:
-                            // Pan sliver view right
-                            state.sliver_camera.offset += 0.1f / state.sliver_camera.scale;
-                            break;
-                        case SDLK_UP:
-                            // Zoom in sliver (show less range)
-                            state.sliver_camera.scale *= 1.2f;
-                            if (state.sliver_camera.scale > 10.0f) state.sliver_camera.scale = 10.0f;
-                            break;
-                        case SDLK_DOWN:
                             // Zoom out sliver (show more range)
                             state.sliver_camera.scale /= 1.2f;
-                            if (state.sliver_camera.scale < 0.1f) state.sliver_camera.scale = 0.1f;
+                            if (state.sliver_camera.scale < 0.01f) state.sliver_camera.scale = 0.01f;  // Min zoom: show 100 units
+                            break;
+                        case SDLK_RIGHT:
+                            // Zoom in sliver (show less range)
+                            state.sliver_camera.scale *= 1.2f;
+                            if (state.sliver_camera.scale > 2.0f) state.sliver_camera.scale = 2.0f;  // Max zoom: show 0.5 units
+                            break;
+                        case SDLK_UP:
+                            // Pan sliver view left (move by 1 unit in the 0-10 space)
+                            state.sliver_camera.offset -= 0.1f / state.sliver_camera.scale;
+                            break;
+                        case SDLK_DOWN:
+                            // Pan sliver view right (move by 1 unit in the 0-10 space)
+                            state.sliver_camera.offset += 0.1f / state.sliver_camera.scale;
                             break;
                         case SDLK_0:
-                            // Reset sliver camera
+                            // Reset sliver camera to show full 0-10 range
                             state.sliver_camera.offset = 0.0f;
-                            state.sliver_camera.scale = 1.0f;
+                            state.sliver_camera.scale = 0.1f;  // Show 0-10 range
                             break;
                     }
                     break;
