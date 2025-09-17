@@ -811,7 +811,7 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
 // Draw wave rectangle with geometry buffer
 void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period) {
     float thickness = 2.0f;
-    float amplitude = thickness * 3.0f;  // Amplitude is 3x thickness
+    float amplitude = thickness * 2.0f;  // Amplitude is 3x thickness
     float wavelength = thickness * 8.0f * wavelength_scale;  // Wavelength is 8x thickness * scale
     
     // Convert world coordinates to screen
@@ -821,7 +821,7 @@ void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, floa
     V2 bl = world_to_screen((V2){x, y + h}, camera);
     
     // Scale amplitude and wavelength for screen space
-    float screen_amplitude = amplitude * camera->scale;
+    float screen_amplitude = amplitude * fmaxf(1.0f, wavelength_scale * 0.25f) * camera->scale;
     float screen_wavelength = wavelength * camera->scale;
     
     // Draw four wavy sides
@@ -1176,23 +1176,50 @@ void init_bands(AppState* state) {
         .start = 0.0f,
         .size = 1.0f,    // Unit size
         .stride = 1.0f,  // Unit spacing
-        .repeat = 9,     // 10 total intervals
-        .kind = KIND_SHARP,
-        .color = {60, 60, 60, 255},  // Dark gray
-        .wavelength_scale = 1,
+        .repeat = 100,     // 10 total intervals
+        .kind = KIND_WAVE,
+        .color = {60, 60, 100, 255},  // Dark purple
+        .wavelength_scale = 3,
+        .wave_inverted = false,
+        .wave_half_period = false
+    });
+    
+    // Define bands for each sequence (using natural 0-10 range)
+    // Sequence 1: 10 unit squares (0-1, 1-2, ..., 9-10) in dark gray
+    band_array_add(&state->bands, (Band){
+        .start = 0.0f,
+        .size = 1.0f,    // Unit size
+        .stride = 1.0f,  // Unit spacing
+        .repeat = 100,     // 10 total intervals
+        .kind = KIND_WAVE,
+        .color = {60, 60, 60, 255},  // gray
+        .wavelength_scale = 6,
         .wave_inverted = false,
         .wave_half_period = false
     });
     
     // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
     band_array_add(&state->bands, (Band){
-        .start = 0.3f,
+        .start = -0.7f,
         .size = 1.0f,    // Unit size
         .stride = 1.0f,  // Unit spacing
-        .repeat = 7,     // 8 total intervals
-        .kind = KIND_ROUNDED,
+        .repeat = 50,     // 8 total intervals
+        .kind = KIND_WAVE,
         .color = {100, 150, 200, 255},  // Blue
-        .wavelength_scale = 1,
+        .wavelength_scale = 4,
+        .wave_inverted = true,
+        .wave_half_period = false
+    });
+
+    // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
+    band_array_add(&state->bands, (Band){
+        .start = -1.2f,
+        .size = 2.0f,    // Unit size
+        .stride = 1.0f,  // Unit spacing
+        .repeat = 25,     // 8 total intervals
+        .kind = KIND_WAVE,
+        .color = {100, 250, 200, 255},  // Light Green
+        .wavelength_scale = 8,
         .wave_inverted = false,
         .wave_half_period = false
     });
@@ -1210,10 +1237,23 @@ void init_bands(AppState* state) {
         .wave_half_period = false
     });
     
+    // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
+    band_array_add(&state->bands, (Band){
+        .start = 7.2f,
+        .size = 0.5f,    // Half size
+        .stride = 1.0f,  // Unit spacing
+        .repeat = 4,     // 5 total intervals
+        .kind = KIND_DOUBLE,
+        .color = {200, 150, 100, 255},  // Orange
+        .wavelength_scale = 1,
+        .wave_inverted = false,
+        .wave_half_period = false
+    });
+    
     // Sequence 4: single square at 6.6-8.7
     band_array_add(&state->bands, (Band){
-        .start = 6.6f,
-        .size = 2.1f,
+        .start = 4.6f,
+        .size = 3.6f,
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
         .kind = KIND_WAVE,
