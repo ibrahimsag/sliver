@@ -676,7 +676,7 @@ void render_band_summaries(AppState* state) {
             default: kind_name = "Unknown"; break;
         }
         
-        V2 button_pos = {layout.next.x + 200, layout.next.y};
+        V2 button_pos = {layout.next.x + 150, layout.next.y};
         V2 button_size = {80, 22};
         if (render_button(state, kind_name, button_pos, button_size, false)) {
             // Cycle to next kind
@@ -713,10 +713,10 @@ void render_band_summaries(AppState* state) {
                 }
             }
             
-            // Phase toggle button (false = π offset, true = no offset)
+            // Phase toggle button (false = 180°, true = 0°)
             V2 phase_pos = {inc_pos.x + small_button_size.x + 10, layout.next.y};
-            V2 phase_button_size = {60, 22};
-            const char* phase_text = band->wave_inverted ? "NoPhase" : "Phase";
+            V2 phase_button_size = {80, 22};
+            const char* phase_text = band->wave_inverted ? "sin 0" : "sin pi";
             if (render_button(state, phase_text, phase_pos, phase_button_size, band->wave_inverted)) {
                 band->wave_inverted = !band->wave_inverted;
                 generate_squares_from_bands(state);
@@ -1318,6 +1318,62 @@ void init_bands(AppState* state) {
         .wavelength_scale = 2,  // Start with 2x wavelength
         .wave_inverted = false,  // Start with normal phase
         .wave_half_period = false  // Start with full periods
+    });
+    
+    // Generate squares from bands
+    generate_squares_from_bands(state);
+}
+
+void init_bands_tz(AppState* state) {
+    // Clear existing bands
+    band_array_clear(&state->bands);
+    
+    band_array_add(&state->bands, (Band){
+        .start = 0.0f,
+        .size = 1.0f,    // Unit size
+        .stride = 1.0f,  // Unit spacing
+        .repeat = 100,     // 10 total intervals
+        .kind = KIND_WAVE,
+        .color = {160, 160, 160, 255},  // gray
+        .wavelength_scale = 3,
+        .wave_inverted = false,
+        .wave_half_period = false
+    });
+
+    band_array_add(&state->bands, (Band){
+        .start = -3.0f/24.0f,
+        .size = 1.0f,    // Unit size
+        .stride = 1.0f,  // Unit spacing
+        .repeat = 100,     // 10 total intervals
+        .kind = KIND_WAVE,
+        .color = {160, 160, 200, 255},  // purple
+        .wavelength_scale = 6,
+        .wave_inverted = false,
+        .wave_half_period = false
+    });
+
+    band_array_add(&state->bands, (Band){
+        .start = 3.0f/24.f,
+        .size = 1.0f,    // Unit size
+        .stride = 1.0f,  // Unit spacing
+        .repeat = 50,     // 8 total intervals
+        .kind = KIND_WAVE,
+        .color = {100, 150, 200, 255},  // Blue
+        .wavelength_scale = 4,
+        .wave_inverted = true,
+        .wave_half_period = false
+    });
+
+    band_array_add(&state->bands, (Band){
+        .start = 8.0f/24.f,
+        .size = 1.0f,    // Unit size
+        .stride = 1.0f,  // Unit spacing
+        .repeat = 25,     // 8 total intervals
+        .kind = KIND_WAVE,
+        .color = {100, 250, 200, 255},  // Light Green
+        .wavelength_scale = 8,
+        .wave_inverted = false,
+        .wave_half_period = false
     });
     
     // Generate squares from bands
