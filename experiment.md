@@ -189,6 +189,36 @@ This ensures the center of the visible range stays fixed while zooming, providin
 
 ## Recent Enhancements
 
+### OKLCH Color Space Integration
+Implemented a single-header library (`color.h`) for perceptually uniform color manipulation:
+- **OKLCH** (OKLab Lightness, Chroma, Hue) provides intuitive color parameters:
+  - Lightness (0-1): Perceptually uniform brightness
+  - Chroma (0-~0.4): Color intensity/saturation
+  - Hue (0-360°): Color angle on the wheel
+- Complete bidirectional transformations: sRGB ↔ Linear RGB ↔ OKLab ↔ OKLCH
+- Utility functions for color interpolation, hue rotation, and lightness/chroma adjustment
+- SDL_Color integration for seamless use with existing rendering
+- Enables creation of harmonious color palettes with consistent perceived brightness
+
+### Input Field Enhancements
+Numeric input fields with multiple interaction modes:
+- **Text Input**: Click to activate field, type values directly
+- **Mouse Dragging**: Shift+drag horizontally to adjust values
+  - Normal drag: 0.01 per pixel
+  - Ctrl+Shift+drag: 0.001 per pixel (fine control)
+  - Alt+Shift+drag: 0.1 per pixel (coarse control)
+- **Keyboard Controls**: Arrow keys for increment/decrement when field is active
+  - Up/Down: ±0.1 (±1.0 with Shift, ±0.01 with Ctrl)
+- Visual feedback with color-coded borders for different states
+- Pointer-based field identity for immediate-mode UI
+
+### Band System Improvements
+- **Start/End Fields**: Bands now use start and end positions instead of start and size
+- Size automatically calculated as `end - start`
+- Editable input fields for both start and end positions
+- Multiple preset configurations (Weekly, TZ) accessible via buttons
+- Per-frame square generation for immediate updates
+
 ### Geometry Buffer System
 Implemented a geometry buffer system using SDL2's `SDL_RenderGeometry` for efficient rendering:
 - Custom `GeometryBuffer` struct manages vertices and indices
