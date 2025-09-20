@@ -45,7 +45,7 @@ typedef enum {
 
 typedef struct {
     float start;   // Starting position of first interval
-    float size;    // Size of each interval
+    float end;     // Ending position of first interval (size = end - start)
     float stride;  // Distance between interval starts
     int repeat;    // Number of additional intervals (0 = single interval, n = n+1 total intervals)
     SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
@@ -829,7 +829,13 @@ void render_band_summaries(AppState* state) {
         render_input_field(state, &band->start, input_pos, input_size);
         advance_layout(&layout, 20);
         
-        snprintf(buffer, sizeof(buffer), "  Size: %.2f", band->size);
+        render_text(state, "  End:", layout.next, gray);
+        input_pos = (V2){layout.next.x + 120, layout.next.y};
+        render_input_field(state, &band->end, input_pos, input_size);
+        advance_layout(&layout, 20);
+        
+        float size = band->end - band->start;
+        snprintf(buffer, sizeof(buffer), "  Size: %.2f", size);
         render_text(state, buffer, layout.next, gray);
         advance_layout(&layout, 20);
         
@@ -1288,6 +1294,7 @@ void square_array_clear(SquareArray* arr) {
 // Band values are in 0-10 range, stored as-is (sliver camera handles the scaling)
 void generate_intervals_from_band(SquareArray* arr, Band* band) {
     int count = band->repeat + 1;  // repeat=0 means 1 interval, repeat=n means n+1 intervals
+    float size = band->end - band->start;  // Calculate size from end - start
     
     size_t start_idx = arr->length;
     square_array_ensure_capacity(arr, arr->length + count);
@@ -1296,7 +1303,7 @@ void generate_intervals_from_band(SquareArray* arr, Band* band) {
         float interval_start = band->start + i * band->stride;
         // Store in 0-10 range (sliver camera will handle the transform)
         arr->ptr[start_idx + i].interval.start = interval_start;
-        arr->ptr[start_idx + i].interval.end = interval_start + band->size;
+        arr->ptr[start_idx + i].interval.end = interval_start + size;
         arr->ptr[start_idx + i].color = band->color;  // Use color from Band
         arr->ptr[start_idx + i].kind = band->kind;    // Use kind from Band
         arr->ptr[start_idx + i].wavelength_scale = band->wavelength_scale;  // Use wavelength_scale from Band
@@ -1324,7 +1331,7 @@ void init_bands(AppState* state) {
     // Sequence 1: 10 unit squares (0-1, 1-2, ..., 9-10) in dark gray
     band_array_add(&state->bands, (Band){
         .start = 0.0f,
-        .size = 1.0f,    // Unit size
+        .end = 1.0f,     // End of first interval
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
@@ -1338,7 +1345,7 @@ void init_bands(AppState* state) {
     // Sequence 1: 10 unit squares (0-1, 1-2, ..., 9-10) in dark gray
     band_array_add(&state->bands, (Band){
         .start = 0.0f,
-        .size = 1.0f,    // Unit size
+        .end = 1.0f,     // End of first interval
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
@@ -1351,7 +1358,7 @@ void init_bands(AppState* state) {
     // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
     band_array_add(&state->bands, (Band){
         .start = -0.7f,
-        .size = 1.0f,    // Unit size
+        .end = 0.3f,     // End of first interval (size = 1.0)
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
         .kind = KIND_WAVE,
@@ -1364,7 +1371,7 @@ void init_bands(AppState* state) {
     // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
     band_array_add(&state->bands, (Band){
         .start = -1.2f,
-        .size = 2.0f,    // Unit size
+        .end = 0.8f,     // End of first interval (size = 2.0)
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
         .kind = KIND_WAVE,
@@ -1377,7 +1384,7 @@ void init_bands(AppState* state) {
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
     band_array_add(&state->bands, (Band){
         .start = 0.2f,
-        .size = 0.5f,    // Half size
+        .end = 0.7f,     // End of first interval (size = 0.5)
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
         .kind = KIND_DOUBLE,
@@ -1390,7 +1397,7 @@ void init_bands(AppState* state) {
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
     band_array_add(&state->bands, (Band){
         .start = 7.2f,
-        .size = 0.5f,    // Half size
+        .end = 7.7f,     // End of first interval (size = 0.5)
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
         .kind = KIND_DOUBLE,
@@ -1403,7 +1410,7 @@ void init_bands(AppState* state) {
     // Sequence 4: single square at 6.6-8.7
     band_array_add(&state->bands, (Band){
         .start = 4.6f,
-        .size = 3.6f,
+        .end = 8.2f,     // End of first interval (size = 3.6)
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
         .kind = KIND_WAVE,
@@ -1423,7 +1430,7 @@ void init_bands_tz(AppState* state) {
     
     band_array_add(&state->bands, (Band){
         .start = 0.0f,
-        .size = 1.0f,    // Unit size
+        .end = 1.0f,     // End of first interval
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
@@ -1435,7 +1442,7 @@ void init_bands_tz(AppState* state) {
 
     band_array_add(&state->bands, (Band){
         .start = -3.0f/24.0f,
-        .size = 1.0f,    // Unit size
+        .end = -3.0f/24.0f + 1.0f,  // End of first interval
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
@@ -1447,7 +1454,7 @@ void init_bands_tz(AppState* state) {
 
     band_array_add(&state->bands, (Band){
         .start = 3.0f/24.f,
-        .size = 1.0f,    // Unit size
+        .end = 3.0f/24.f + 1.0f,    // End of first interval
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
         .kind = KIND_WAVE,
@@ -1459,7 +1466,7 @@ void init_bands_tz(AppState* state) {
 
     band_array_add(&state->bands, (Band){
         .start = 8.0f/24.f,
-        .size = 1.0f,    // Unit size
+        .end = 8.0f/24.f + 1.0f,    // End of first interval
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
         .kind = KIND_WAVE,
