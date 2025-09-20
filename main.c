@@ -690,7 +690,7 @@ void render_input_field_ex(AppState* state, float* value, V2 position, V2 size, 
             // Regular click to activate for typing
             state->active_input_field = value;
             state->input_original_value = *value;
-            snprintf(state->input_buffer, sizeof(state->input_buffer), "%.3f", *value);
+            snprintf(state->input_buffer, sizeof(state->input_buffer), "%.2f", *value);
             state->cursor_pos = strlen(state->input_buffer);
         }
     } else if (!hover && state->mouse_pressed && is_active) {
@@ -717,7 +717,7 @@ void render_input_field_ex(AppState* state, float* value, V2 position, V2 size, 
             
             // Update display if this field is also active
             if (is_active) {
-                snprintf(state->input_buffer, sizeof(state->input_buffer), "%.3f", *value);
+                snprintf(state->input_buffer, sizeof(state->input_buffer), "%.2f", *value);
                 state->cursor_pos = strlen(state->input_buffer);
             }
         } else {
@@ -763,7 +763,7 @@ void render_input_field_ex(AppState* state, float* value, V2 position, V2 size, 
         strncpy(display_text, state->input_buffer, sizeof(display_text));
     } else {
         // Show current value
-        snprintf(display_text, sizeof(display_text), "%.3f", *value);
+        snprintf(display_text, sizeof(display_text), "%.2f", *value);
     }
     
     // Render text
@@ -1904,7 +1904,7 @@ int main(int argc, char* argv[]) {
                                 } else {
                                     *active_value += 0.1f;
                                 }
-                                snprintf(state.input_buffer, sizeof(state.input_buffer), "%.3f", *active_value);
+                                snprintf(state.input_buffer, sizeof(state.input_buffer), "%.2f", *active_value);
                                 state.cursor_pos = strlen(state.input_buffer);
                                 break;
                                 
@@ -1917,7 +1917,7 @@ int main(int argc, char* argv[]) {
                                 } else {
                                     *active_value -= 0.1f;
                                 }
-                                snprintf(state.input_buffer, sizeof(state.input_buffer), "%.3f", *active_value);
+                                snprintf(state.input_buffer, sizeof(state.input_buffer), "%.2f", *active_value);
                                 state.cursor_pos = strlen(state.input_buffer);
                                 break;
                                 
