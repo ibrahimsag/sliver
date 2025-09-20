@@ -223,9 +223,13 @@ Numeric input fields with multiple interaction modes:
   - End position remains fixed, only start moves (band size changes dynamically)
 - **Band Management UI**:
   - Multiple preset configurations (Weekly, TZ) accessible via buttons
+  - Split button (S) divides band at midpoint into two halves
+    - First half keeps original start to midpoint
+    - Second half from midpoint to original end
+    - Second half has `follow_previous` enabled to track first half
+  - Copy button (C) duplicates band with same size, positioned after original
   - Remove button (X) to delete individual bands
   - Add button (+ Band) creates new band with random OKLCH color at 70% lightness
-  - Copy button (C) duplicates band with same size, positioned after original
 - Per-frame square generation for immediate updates
 
 ### Geometry Buffer System
@@ -311,6 +315,11 @@ When implementing rounded rectangles for squares on a 45° diagonal, we discover
    - Only start position updates, end remains fixed (dynamic sizing)
    - Implemented in `generate_squares_from_bands()` before interval generation
    - Copy operation preserves original size but enables auto-positioning
+   - Split operation creates two bands:
+     - `band_array_split()` divides at midpoint `(start + end) / 2`
+     - Original band becomes first half (end = midpoint)
+     - New band becomes second half (start = midpoint, `follow_previous = true`)
+     - Both halves retain all visual properties from original
 9. **Split Layout Architecture**:
    - Viewport on left (1400px) for sliver rendering with clipping
    - UI panel on right (520px) for future controls
