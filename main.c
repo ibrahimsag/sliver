@@ -261,6 +261,7 @@ void init_bands_week(AppState* state);
 void init_bands_tz(AppState* state);
 void band_array_remove(BandArray* arr, size_t index);
 void band_array_copy_after(BandArray* arr, size_t index);
+void band_array_split(BandArray* arr, size_t index);
 void add_random_band(AppState* state);
 
 // Geometry buffer functions
@@ -842,6 +843,14 @@ void render_band_summaries(AppState* state) {
         snprintf(buffer, sizeof(buffer), "Band %zu:", i + 1);
         render_text(state, buffer, layout.next, band->color);
         
+        // Add split button (S) near the right side
+        V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
+        V2 split_size = {25, 22};
+        if (render_button(state, "S", split_pos, split_size, false)) {
+            band_array_split(&state->bands, i);
+            break;  // Exit loop since array has changed
+        }
+        
         // Add copy button (C) near the right side
         V2 copy_pos = {WINDOW_WIDTH - 50, layout.next.y + 25};
         V2 copy_size = {25, 22};
@@ -1415,6 +1424,24 @@ void band_array_copy_after(BandArray* arr, size_t index) {
     
     // Insert right after the original
     band_array_insert(arr, index + 1, copy);
+}
+
+void band_array_split(BandArray* arr, size_t index) {
+    if (index >= arr->length) return;
+    
+    Band* original = &arr->ptr[index];
+    float midpoint = (original->start + original->end) / 2.0f;
+    
+    // Create second half band
+    Band second_half = *original;
+    second_half.start = midpoint;
+    second_half.follow_previous = true;  // Second half follows the first half
+    
+    // Modify original to be first half
+    original->end = midpoint;
+    
+    // Insert second half right after the original
+    band_array_insert(arr, index + 1, second_half);
 }
 
 // SquareArray management functions
