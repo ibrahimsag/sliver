@@ -50,7 +50,9 @@ typedef struct {
     float stride;  // Distance between interval starts
     int repeat;    // Number of additional intervals (0 = single interval, n = n+1 total intervals)
     SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
-    SDL_Color color;  // Color for squares in this band
+    float hue;     // Hue value in OKLCH color space (0-360)
+    float lightness;  // Lightness value in OKLCH (0-1)
+    float chroma;    // Chroma value in OKLCH (0-~0.4)
     int wavelength_scale;  // Multiplier for wavelength when kind is WAVE
     bool wave_inverted;  // Whether to use π phase offset for waves
     bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
@@ -263,6 +265,7 @@ void band_array_remove(BandArray* arr, size_t index);
 void band_array_copy_after(BandArray* arr, size_t index);
 void band_array_split(BandArray* arr, size_t index);
 void add_random_band(AppState* state);
+SDL_Color make_color_oklch(float L, float C, float h);
 
 // Geometry buffer functions
 void geometry_buffer_init(GeometryBuffer* gb, size_t initial_vertex_capacity, size_t initial_index_capacity) {
@@ -661,8 +664,8 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, bool
     return hover && !state->mouse_pressed && state->mouse_was_pressed;
 }
 
-// Extended version of input field with disabled option
-void render_input_field_ex(AppState* state, float* value, V2 position, V2 size, bool disabled) {
+// Full version of input field with disabled option and custom scale
+void render_input_field_full(AppState* state, float* value, V2 position, V2 size, bool disabled, float drag_scale) {
     bool is_active = (state->active_input_field == value);
     bool is_dragging = (state->dragging_input_field == value);
     
@@ -708,11 +711,11 @@ void render_input_field_ex(AppState* state, float* value, V2 position, V2 size, 
         if (state->mouse_pressed) {
             // Update value based on mouse drag
             float delta_x = state->mouse_pos.x - state->drag_start_mouse_x;
-            float scale = 0.01f;  // Adjust sensitivity
+            float scale = drag_scale;  // Use provided scale
             if (SDL_GetModState() & KMOD_CTRL) {
-                scale = 0.001f;  // Fine control with Ctrl
+                scale = drag_scale * 0.1f;  // Fine control with Ctrl
             } else if (SDL_GetModState() & KMOD_ALT) {
-                scale = 0.1f;    // Coarse control with Alt
+                scale = drag_scale * 10.0f;    // Coarse control with Alt
             }
             *value = state->drag_start_value + delta_x * scale;
             
@@ -797,7 +800,7 @@ void render_input_field_ex(AppState* state, float* value, V2 position, V2 size, 
 
 // Simple wrapper for backward compatibility
 void render_input_field(AppState* state, float* value, V2 position, V2 size) {
-    render_input_field_ex(state, value, position, size, false);
+    render_input_field_full(state, value, position, size, false, 0.01f);  // Default scale
 }
 
 void render_band_summaries(AppState* state) {
@@ -841,7 +844,8 @@ void render_band_summaries(AppState* state) {
         
         // Band header with band number
         snprintf(buffer, sizeof(buffer), "Band %zu:", i + 1);
-        render_text(state, buffer, layout.next, band->color);
+        SDL_Color band_color = make_color_oklch(band->lightness, band->chroma, band->hue);
+        render_text(state, buffer, layout.next, band_color);
         
         // Add split button (S) near the right side
         V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
@@ -887,12 +891,13 @@ void render_band_summaries(AppState* state) {
         
         // If WAVE kind, show wavelength controls
         if (band->kind == KIND_WAVE) {
-            // Decrement button
+            // Decrement button (divide by 2)
             V2 dec_pos = {button_pos.x + button_size.x + 10, layout.next.y};
             V2 small_button_size = {20, 22};
             if (render_button(state, "-", dec_pos, small_button_size, false)) {
                 if (band->wavelength_scale > 1) {
-                    band->wavelength_scale--;
+                    band->wavelength_scale /= 2;
+                    if (band->wavelength_scale < 1) band->wavelength_scale = 1;
                 }
             }
             
@@ -903,11 +908,11 @@ void render_band_summaries(AppState* state) {
             SDL_Color white = {255, 255, 255, 255};
             render_text(state, scale_text, text_pos, white);
             
-            // Increment button
-            V2 inc_pos = {text_pos.x + 20, layout.next.y};
+            // Increment button (multiply by 2)
+            V2 inc_pos = {text_pos.x + 30, layout.next.y};
             if (render_button(state, "+", inc_pos, small_button_size, false)) {
-                if (band->wavelength_scale < 10) {
-                    band->wavelength_scale++;
+                if (band->wavelength_scale < 64) {
+                    band->wavelength_scale *= 2;
                 }
             }
             
@@ -944,7 +949,7 @@ void render_band_summaries(AppState* state) {
         }
         
         // Render start field (disabled if follow_previous is true)
-        render_input_field_ex(state, &band->start, input_pos, input_size, band->follow_previous);
+        render_input_field_full(state, &band->start, input_pos, input_size, band->follow_previous, 0.01f);
         advance_layout(&layout, 20);
         
         render_text(state, "  End:", layout.next, gray);
@@ -957,18 +962,20 @@ void render_band_summaries(AppState* state) {
         render_text(state, buffer, layout.next, gray);
         advance_layout(&layout, 20);
         
-        if (band->repeat > 0) {
-            snprintf(buffer, sizeof(buffer), "  Stride: %.2f", band->stride);
-            render_text(state, buffer, layout.next, gray);
-            advance_layout(&layout, 20);
-            
-            snprintf(buffer, sizeof(buffer), "  Count: %d intervals", band->repeat + 1);
-            render_text(state, buffer, layout.next, gray);
-            advance_layout(&layout, 20);
-        } else {
-            render_text(state, "  Single interval", layout.next, gray);
-            advance_layout(&layout, 20);
+        // Hue input field
+        render_text(state, "  Hue:", layout.next, gray);
+        input_pos = (V2){layout.next.x + 120, layout.next.y};
+        
+        // Store old hue to detect changes
+        float old_hue = band->hue;
+        render_input_field_full(state, &band->hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
+        
+        // Clamp hue to valid range if it changed
+        if (band->hue != old_hue) {
+            while (band->hue < 0) band->hue += 360.0f;
+            while (band->hue >= 360.0f) band->hue -= 360.0f;
         }
+        advance_layout(&layout, 20);
         
         advance_layout(&layout, 10);  // Space between bands
     }
@@ -1041,7 +1048,9 @@ void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, floa
     V2 bl = world_to_screen((V2){x, y + h}, camera);
     
     // Scale amplitude and wavelength for screen space
-    float screen_amplitude = amplitude * fmaxf(1.0f, wavelength_scale * 0.25f) * camera->scale;
+    // Use log2 of wavelength_scale for more reasonable amplitude scaling
+    float amplitude_scale = 1.0f + log2f(fmaxf(1.0f, (float)wavelength_scale)) * 0.5f;
+    float screen_amplitude = amplitude * amplitude_scale * camera->scale;
     float screen_wavelength = wavelength * camera->scale;
     
     // Draw four wavy sides (skip hidden edges)
@@ -1487,7 +1496,7 @@ void generate_intervals_from_band(SquareArray* arr, Band* band) {
         // Store in 0-10 range (sliver camera will handle the transform)
         arr->ptr[start_idx + i].interval.start = interval_start;
         arr->ptr[start_idx + i].interval.end = interval_start + size;
-        arr->ptr[start_idx + i].color = band->color;  // Use color from Band
+        arr->ptr[start_idx + i].color = make_color_oklch(band->lightness, band->chroma, band->hue);  // Compute color from OKLCH
         arr->ptr[start_idx + i].kind = band->kind;    // Use kind from Band
         arr->ptr[start_idx + i].wavelength_scale = band->wavelength_scale;  // Use wavelength_scale from Band
         arr->ptr[start_idx + i].wave_inverted = band->wave_inverted;  // Use wave_inverted from Band
@@ -1534,8 +1543,10 @@ void add_random_band(AppState* state) {
         .stride = 1.0f,
         .repeat = 0,
         .kind = KIND_WAVE,  // Default to wave
-        .color = make_color_oklch(lightness, chroma, random_hue),
-        .wavelength_scale = 3,
+        .hue = random_hue,
+        .lightness = lightness,
+        .chroma = chroma,
+        .wavelength_scale = 4,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1558,8 +1569,10 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .color = make_color_oklch(0.5f, 0.15f, 280.0f),  // Purple in OKLCH
-        .wavelength_scale = 3,
+        .hue = 280.0f,  // Purple
+        .lightness = 0.5f,
+        .chroma = 0.15f,
+        .wavelength_scale = 4,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1572,8 +1585,10 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .color = make_color_oklch(0.45f, 0.02f, 0.0f),  // Neutral gray in OKLCH
-        .wavelength_scale = 6,
+        .hue = 0.0f,  // Neutral
+        .lightness = 0.45f,
+        .chroma = 0.02f,
+        .wavelength_scale = 8,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1586,7 +1601,9 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
         .kind = KIND_WAVE,
-        .color = make_color_oklch(0.7f, 0.18f, 230.0f),  // Blue in OKLCH
+        .hue = 230.0f,  // Blue
+        .lightness = 0.7f,
+        .chroma = 0.18f,
         .wavelength_scale = 4,
         .wave_inverted = true,
         .wave_half_period = false,
@@ -1600,7 +1617,9 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
         .kind = KIND_WAVE,
-        .color = make_color_oklch(0.75f, 0.2f, 150.0f),  // Light Green in OKLCH
+        .hue = 150.0f,  // Light Green
+        .lightness = 0.75f,
+        .chroma = 0.2f,
         .wavelength_scale = 8,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1614,8 +1633,10 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
         .kind = KIND_DOUBLE,
-        .color = {200, 150, 100, 255},  // Orange
-        .wavelength_scale = 1,
+        .hue = 40.0f,  // Orange
+        .lightness = 0.65f,
+        .chroma = 0.15f,
+        .wavelength_scale = 2,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1628,8 +1649,10 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
         .kind = KIND_DOUBLE,
-        .color = {200, 150, 100, 255},  // Orange
-        .wavelength_scale = 1,
+        .hue = 40.0f,  // Orange
+        .lightness = 0.65f,
+        .chroma = 0.15f,
+        .wavelength_scale = 2,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1642,7 +1665,9 @@ void init_bands_week(AppState* state) {
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
         .kind = KIND_WAVE,
-        .color = {150, 200, 150, 255},  // Green
+        .hue = 120.0f,  // Green
+        .lightness = 0.7f,
+        .chroma = 0.1f,
         .wavelength_scale = 2,  // Start with 2x wavelength
         .wave_inverted = false,  // Start with normal phase
         .wave_half_period = false,  // Start with full periods
@@ -1663,8 +1688,10 @@ void init_bands_tz(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .color = {160, 160, 160, 255},  // gray
-        .wavelength_scale = 3,
+        .hue = 0.0f,  // gray
+        .lightness = 0.6f,
+        .chroma = 0.0f,
+        .wavelength_scale = 4,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1676,8 +1703,10 @@ void init_bands_tz(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .color = {160, 160, 200, 255},  // purple
-        .wavelength_scale = 6,
+        .hue = 240.0f,  // purple
+        .lightness = 0.65f,
+        .chroma = 0.1f,
+        .wavelength_scale = 8,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1689,7 +1718,9 @@ void init_bands_tz(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
         .kind = KIND_WAVE,
-        .color = {100, 150, 200, 255},  // Blue
+        .hue = 210.0f,  // Blue
+        .lightness = 0.55f,
+        .chroma = 0.15f,
         .wavelength_scale = 4,
         .wave_inverted = true,
         .wave_half_period = false
@@ -1701,7 +1732,9 @@ void init_bands_tz(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
         .kind = KIND_WAVE,
-        .color = {100, 250, 200, 255},  // Light Green
+        .hue = 160.0f,  // Light Green
+        .lightness = 0.75f,
+        .chroma = 0.25f,
         .wavelength_scale = 8,
         .wave_inverted = false,
         .wave_half_period = false,
