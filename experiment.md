@@ -215,8 +215,17 @@ Numeric input fields with multiple interaction modes:
 ### Band System Improvements
 - **Start/End Fields**: Bands now use start and end positions instead of start and size
 - Size automatically calculated as `end - start`
-- Editable input fields for both start and end positions
-- Multiple preset configurations (Weekly, TZ) accessible via buttons
+- Editable input fields for both start and end positions with 2 decimal places
+- **Auto-positioning**: Bands can automatically follow the previous band's end position
+  - `follow_previous` boolean field on Band struct
+  - Toggle button (⇐) next to start field to enable/disable
+  - When enabled, start field is disabled and band automatically positions itself
+  - End position remains fixed, only start moves (band size changes dynamically)
+- **Band Management UI**:
+  - Multiple preset configurations (Weekly, TZ) accessible via buttons
+  - Remove button (X) to delete individual bands
+  - Add button (+ Band) creates new band with random OKLCH color at 70% lightness
+  - Copy button (C) duplicates band with same size, positioned after original
 - Per-frame square generation for immediate updates
 
 ### Geometry Buffer System
@@ -258,6 +267,9 @@ Interactive controls rendered directly each frame:
 - Per-band controls for switching drawing styles
 - Wave-specific controls (wavelength scale, phase, period) appear contextually
 - Text rendering with supersampled fonts for quality
+- **Extended Input Fields**: `render_input_field_ex()` function supports disabled state
+  - Visual feedback with darker background and dimmer border when disabled
+  - Used for start field when auto-positioning is enabled
 
 ## Lessons Learned
 
@@ -290,16 +302,21 @@ When implementing rounded rectangles for squares on a 45° diagonal, we discover
 5. **Interval Abstraction**: Using `Interval` struct for (start, end) pairs makes transformations more composable
 6. **Dynamic Arrays**: Custom `SquareArray` and `BandArray` structs manage their own memory with capacity/length tracking
 7. **Data-Driven Architecture**: 
-   - `Band` struct encapsulates pattern generation (start, size, stride, repeat) with visual properties (kind, color)
+   - `Band` struct encapsulates pattern generation (start, end, stride, repeat) with visual properties (kind, color)
    - `repeat` field: 0 generates single interval, n generates n+1 intervals total
    - Bands stored persistently in `BandArray`, squares generated on demand
    - Clean separation between data definition and rendering
-8. **Split Layout Architecture**:
+8. **Dynamic Band Positioning**:
+   - `follow_previous` flag enables bands to automatically track previous band's end position
+   - Only start position updates, end remains fixed (dynamic sizing)
+   - Implemented in `generate_squares_from_bands()` before interval generation
+   - Copy operation preserves original size but enables auto-positioning
+9. **Split Layout Architecture**:
    - Viewport on left (1400px) for sliver rendering with clipping
    - UI panel on right (520px) for future controls
    - Mouse interactions bounded to viewport area
    - Camera transforms adjusted for viewport centering
-9. **Natural Coordinate System**:
+10. **Natural Coordinate System**:
    - Bands defined in intuitive 0-10 range
    - Sliver camera manages view into this space
    - Automatic normalization for diagonal interpolation
