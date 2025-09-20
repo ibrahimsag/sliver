@@ -146,6 +146,10 @@ typedef struct {
     char input_buffer[64];     // Text buffer for current input
     int cursor_pos;            // Cursor position in input buffer
     float input_original_value;  // Original value to restore on cancel
+    // Input field drag state
+    void* dragging_input_field;  // Pointer to the float being dragged
+    float drag_start_value;      // Value when drag started
+    float drag_start_mouse_x;    // Mouse X position when drag started
     bool running;
 } AppState;
 
@@ -652,6 +656,7 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, bool
 // Render an input field for editing a float value
 void render_input_field(AppState* state, float* value, V2 position, V2 size) {
     bool is_active = (state->active_input_field == value);
+    bool is_dragging = (state->dragging_input_field == value);
     
     SDL_Rect field_rect = {
         (int)position.x,
@@ -664,10 +669,18 @@ void render_input_field(AppState* state, float* value, V2 position, V2 size) {
     bool hover = state->mouse_pos.x >= field_rect.x && state->mouse_pos.x < field_rect.x + field_rect.w &&
                  state->mouse_pos.y >= field_rect.y && state->mouse_pos.y < field_rect.y + field_rect.h;
     
-    // Handle click to activate/deactivate
+    // Check if hovering with shift (drag mode)
+    bool hover_drag_mode = hover && (SDL_GetModState() & KMOD_SHIFT);
+    
+    // Handle mouse interactions
     if (hover && state->mouse_pressed && !state->mouse_was_pressed) {
-        if (!is_active) {
-            // Activate this field
+        if (SDL_GetModState() & KMOD_SHIFT) {
+            // Shift+click to start dragging
+            state->dragging_input_field = value;
+            state->drag_start_value = *value;
+            state->drag_start_mouse_x = state->mouse_pos.x;
+        } else if (!is_active) {
+            // Regular click to activate for typing
             state->active_input_field = value;
             state->input_original_value = *value;
             snprintf(state->input_buffer, sizeof(state->input_buffer), "%.3f", *value);
@@ -682,9 +695,37 @@ void render_input_field(AppState* state, float* value, V2 position, V2 size) {
         state->active_input_field = NULL;
     }
     
+    // Handle dragging
+    if (is_dragging) {
+        if (state->mouse_pressed) {
+            // Update value based on mouse drag
+            float delta_x = state->mouse_pos.x - state->drag_start_mouse_x;
+            float scale = 0.01f;  // Adjust sensitivity
+            if (SDL_GetModState() & KMOD_CTRL) {
+                scale = 0.001f;  // Fine control with Ctrl
+            } else if (SDL_GetModState() & KMOD_ALT) {
+                scale = 0.1f;    // Coarse control with Alt
+            }
+            *value = state->drag_start_value + delta_x * scale;
+            
+            // Update display if this field is also active
+            if (is_active) {
+                snprintf(state->input_buffer, sizeof(state->input_buffer), "%.3f", *value);
+                state->cursor_pos = strlen(state->input_buffer);
+            }
+        } else {
+            // Stop dragging when mouse released
+            state->dragging_input_field = NULL;
+        }
+    }
+    
     // Draw field background
-    if (is_active) {
+    if (is_dragging) {
+        SDL_SetRenderDrawColor(state->renderer, 70, 55, 70, 255);  // Purple tint when dragging
+    } else if (is_active) {
         SDL_SetRenderDrawColor(state->renderer, 60, 65, 70, 255);
+    } else if (hover_drag_mode) {
+        SDL_SetRenderDrawColor(state->renderer, 55, 50, 55, 255);  // Hint for drag mode
     } else if (hover) {
         SDL_SetRenderDrawColor(state->renderer, 45, 45, 50, 255);
     } else {
@@ -693,8 +734,12 @@ void render_input_field(AppState* state, float* value, V2 position, V2 size) {
     SDL_RenderFillRect(state->renderer, &field_rect);
     
     // Draw field border
-    if (is_active) {
+    if (is_dragging) {
+        SDL_SetRenderDrawColor(state->renderer, 150, 100, 200, 255);  // Purple border when dragging
+    } else if (is_active) {
         SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
+    } else if (hover_drag_mode) {
+        SDL_SetRenderDrawColor(state->renderer, 120, 80, 140, 255);  // Purple hint for drag mode
     } else {
         SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
     }
