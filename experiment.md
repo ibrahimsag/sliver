@@ -187,6 +187,48 @@ state.sliver_camera.offset = center - 0.5f / state.sliver_camera.scale;
 ```
 This ensures the center of the visible range stays fixed while zooming, providing more intuitive navigation through the 1D parameter space.
 
+## Recent Enhancements
+
+### Geometry Buffer System
+Implemented a geometry buffer system using SDL2's `SDL_RenderGeometry` for efficient rendering:
+- Custom `GeometryBuffer` struct manages vertices and indices
+- Thick lines rendered as textured quads instead of multiple thin lines
+- All shapes batched into a single draw call per frame
+- Supports anti-aliased arcs and curves through segment approximation
+
+### Drawing Styles (SquareKind)
+Four distinct rendering styles for squares:
+1. **SHARP**: Regular rectangles with straight edges
+2. **ROUNDED**: Rectangles with circular arc corners (radius adapts to square size)
+3. **DOUBLE**: Two concentric rectangles with spacing equal to line thickness
+4. **WAVE**: Sine wave edges with configurable parameters
+
+### Wave Drawing System
+Advanced wave rendering with multiple parameters:
+- **Wavelength Scale**: Integer multiplier (1-10) for wave frequency
+- **Phase Offset**: Toggle between sin(x) and sin(x + π) starting phases
+- **Period Control**: Choose between half or full period endpoints
+- Wave amplitude scales with wavelength for visual consistency
+- Automatic wavelength adjustment to match edge endpoints exactly
+
+### Edge Visibility Culling
+Proper handling of partially visible squares to avoid visual artifacts:
+- When sliver camera transformation clamps intervals to [0,1], the clamped endpoints would create misleading visuals
+- Wave edges make this particularly noticeable - waves would incorrectly appear at viewing boundaries
+- Bitwise flags (`EDGE_TOP`, `EDGE_RIGHT`, `EDGE_BOTTOM`, `EDGE_LEFT`) control which edges to draw
+- Edges connected to diagonal corners that were outside [0,1] before clamping are hidden
+- This ensures intervals appear to extend beyond the visible range rather than showing false endpoints
+- Correctly handles all 4 diagonal orientations based on selected corner
+- Helps distinguish between actual interval endpoints and viewing boundaries
+
+### Immediate Mode UI System
+Interactive controls rendered directly each frame:
+- Button widget with hover highlighting and click detection
+- Mouse position stored in state for cleaner interaction handling
+- Per-band controls for switching drawing styles
+- Wave-specific controls (wavelength scale, phase, period) appear contextually
+- Text rendering with supersampled fonts for quality
+
 ## Lessons Learned
 
 ### Rounded Rectangle Corner Alignment
