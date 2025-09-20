@@ -141,6 +141,11 @@ typedef struct {
     V2 mouse_pos;  // Current mouse position
     bool mouse_pressed;  // Is left mouse button pressed this frame
     bool mouse_was_pressed;  // Was left mouse button pressed last frame
+    // Input field state
+    void* active_input_field;  // Pointer to the float being edited
+    char input_buffer[64];     // Text buffer for current input
+    int cursor_pos;            // Cursor position in input buffer
+    float input_original_value;  // Original value to restore on cancel
     bool running;
 } AppState;
 
@@ -644,6 +649,95 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, bool
     return hover && !state->mouse_pressed && state->mouse_was_pressed;
 }
 
+// Render an input field for editing a float value
+void render_input_field(AppState* state, float* value, V2 position, V2 size) {
+    bool is_active = (state->active_input_field == value);
+    
+    SDL_Rect field_rect = {
+        (int)position.x,
+        (int)position.y,
+        (int)size.x,
+        (int)size.y
+    };
+    
+    // Check if mouse is over field
+    bool hover = state->mouse_pos.x >= field_rect.x && state->mouse_pos.x < field_rect.x + field_rect.w &&
+                 state->mouse_pos.y >= field_rect.y && state->mouse_pos.y < field_rect.y + field_rect.h;
+    
+    // Handle click to activate/deactivate
+    if (hover && state->mouse_pressed && !state->mouse_was_pressed) {
+        if (!is_active) {
+            // Activate this field
+            state->active_input_field = value;
+            state->input_original_value = *value;
+            snprintf(state->input_buffer, sizeof(state->input_buffer), "%.3f", *value);
+            state->cursor_pos = strlen(state->input_buffer);
+        }
+    } else if (!hover && state->mouse_pressed && is_active) {
+        // Click outside - deactivate and apply value
+        if (strlen(state->input_buffer) > 0) {
+            float new_value = atof(state->input_buffer);
+            *value = new_value;
+        }
+        state->active_input_field = NULL;
+    }
+    
+    // Draw field background
+    if (is_active) {
+        SDL_SetRenderDrawColor(state->renderer, 60, 65, 70, 255);
+    } else if (hover) {
+        SDL_SetRenderDrawColor(state->renderer, 45, 45, 50, 255);
+    } else {
+        SDL_SetRenderDrawColor(state->renderer, 35, 35, 40, 255);
+    }
+    SDL_RenderFillRect(state->renderer, &field_rect);
+    
+    // Draw field border
+    if (is_active) {
+        SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
+    } else {
+        SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
+    }
+    SDL_RenderDrawRect(state->renderer, &field_rect);
+    
+    // Display text
+    char display_text[64];
+    if (is_active) {
+        // Show input buffer with cursor
+        strncpy(display_text, state->input_buffer, sizeof(display_text));
+    } else {
+        // Show current value
+        snprintf(display_text, sizeof(display_text), "%.3f", *value);
+    }
+    
+    // Render text
+    if (state->font && strlen(display_text) > 0) {
+        SDL_Color white = {255, 255, 255, 255};
+        V2 text_pos = {position.x + 4, position.y + 2};
+        render_text(state, display_text, text_pos, white);
+        
+        // Draw cursor if active
+        if (is_active && state->font) {
+            // Calculate cursor position using actual text width
+            char temp[64];
+            strncpy(temp, state->input_buffer, state->cursor_pos);
+            temp[state->cursor_pos] = '\0';
+            
+            int text_width = 0;
+            if (strlen(temp) > 0) {
+                // Measure text width using TTF
+                TTF_SizeText(state->font, temp, &text_width, NULL);
+                // Scale down because we render at 2x and scale down
+                text_width /= 2;
+            }
+            
+            float cursor_x = text_pos.x + text_width;
+            SDL_SetRenderDrawColor(state->renderer, 255, 255, 255, 255);
+            SDL_RenderDrawLine(state->renderer, cursor_x, position.y + 2, cursor_x, position.y + size.y - 2);
+        }
+    }
+}
+
 void render_band_summaries(AppState* state) {
     Layout layout = {
         .next = {VIEWPORT_WIDTH + 20, 40},
@@ -676,13 +770,11 @@ void render_band_summaries(AppState* state) {
             default: kind_name = "Unknown"; break;
         }
         
-        V2 button_pos = {layout.next.x + 150, layout.next.y};
+        V2 button_pos = {layout.next.x + 120, layout.next.y};
         V2 button_size = {80, 22};
         if (render_button(state, kind_name, button_pos, button_size, false)) {
             // Cycle to next kind
             band->kind = (band->kind + 1) % KIND_COUNT;
-            // Regenerate squares to apply the change
-            generate_squares_from_bands(state);
         }
         
         // If WAVE kind, show wavelength controls
@@ -693,7 +785,6 @@ void render_band_summaries(AppState* state) {
             if (render_button(state, "-", dec_pos, small_button_size, false)) {
                 if (band->wavelength_scale > 1) {
                     band->wavelength_scale--;
-                    generate_squares_from_bands(state);
                 }
             }
             
@@ -709,7 +800,6 @@ void render_band_summaries(AppState* state) {
             if (render_button(state, "+", inc_pos, small_button_size, false)) {
                 if (band->wavelength_scale < 10) {
                     band->wavelength_scale++;
-                    generate_squares_from_bands(state);
                 }
             }
             
@@ -719,7 +809,6 @@ void render_band_summaries(AppState* state) {
             const char* phase_text = band->wave_inverted ? "sin 0" : "sin pi";
             if (render_button(state, phase_text, phase_pos, phase_button_size, band->wave_inverted)) {
                 band->wave_inverted = !band->wave_inverted;
-                generate_squares_from_bands(state);
             }
             
             // Half period toggle button (false = half period, true = full period)
@@ -728,15 +817,16 @@ void render_band_summaries(AppState* state) {
             const char* half_text = band->wave_half_period ? "Full" : "Half";
             if (render_button(state, half_text, half_pos, half_button_size, band->wave_half_period)) {
                 band->wave_half_period = !band->wave_half_period;
-                generate_squares_from_bands(state);
             }
         }
         
         advance_layout(&layout, 25);
         
         // Band details
-        snprintf(buffer, sizeof(buffer), "  Start: %.2f", band->start);
-        render_text(state, buffer, layout.next, gray);
+        render_text(state, "  Start:", layout.next, gray);
+        V2 input_pos = {layout.next.x + 120, layout.next.y};
+        V2 input_size = {80, 20};
+        render_input_field(state, &band->start, input_pos, input_size);
         advance_layout(&layout, 20);
         
         snprintf(buffer, sizeof(buffer), "  Size: %.2f", band->size);
@@ -946,6 +1036,9 @@ void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, f
 }
 
 void render(AppState* state) {
+    // Regenerate squares from bands every frame (immediate mode)
+    generate_squares_from_bands(state);
+    
     // Clear screen
     SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
     SDL_RenderClear(state->renderer);
@@ -1457,6 +1550,9 @@ int main(int argc, char* argv[]) {
     calculate_diagonal(&state);
     init_bands(&state);
     
+    // Enable text input for input fields
+    SDL_StartTextInput();
+    
     SDL_Event event;
     while (state.running) {
         // Update mouse state before processing events
@@ -1542,7 +1638,117 @@ int main(int argc, char* argv[]) {
                     }
                     break;
                     
+                case SDL_TEXTINPUT:
+                    // Handle text input for active input field
+                    if (state.active_input_field != NULL) {
+                        const char* text = event.text.text;
+                        while (*text) {
+                            char c = *text++;
+                            // Accept numbers, decimal point, and minus sign
+                            if ((c >= '0' && c <= '9') || c == '.' || (c == '-' && state.cursor_pos == 0)) {
+                                // Insert character at cursor position
+                                int len = strlen(state.input_buffer);
+                                if (len < sizeof(state.input_buffer) - 1) {
+                                    memmove(&state.input_buffer[state.cursor_pos + 1],
+                                           &state.input_buffer[state.cursor_pos],
+                                           len - state.cursor_pos + 1);
+                                    state.input_buffer[state.cursor_pos] = c;
+                                    state.cursor_pos++;
+                                }
+                            }
+                        }
+                    }
+                    break;
+                    
                 case SDL_KEYDOWN:
+                    // Handle input field keyboard input first
+                    if (state.active_input_field != NULL) {
+                        float* active_value = (float*)state.active_input_field;
+                        SDL_Keycode key = event.key.keysym.sym;
+                        SDL_Keymod mod = SDL_GetModState();
+                        
+                        switch (key) {
+                            case SDLK_ESCAPE:
+                                // Cancel editing and restore original value
+                                *active_value = state.input_original_value;
+                                state.active_input_field = NULL;
+                                break;
+                                
+                            case SDLK_RETURN:
+                            case SDLK_KP_ENTER:
+                                // Apply value and deactivate
+                                if (strlen(state.input_buffer) > 0) {
+                                    *active_value = atof(state.input_buffer);
+                                }
+                                state.active_input_field = NULL;
+                                break;
+                                
+                            case SDLK_UP:
+                                // Increment value
+                                if (mod & KMOD_SHIFT) {
+                                    *active_value += 1.0f;
+                                } else if (mod & KMOD_CTRL) {
+                                    *active_value += 0.01f;
+                                } else {
+                                    *active_value += 0.1f;
+                                }
+                                snprintf(state.input_buffer, sizeof(state.input_buffer), "%.3f", *active_value);
+                                state.cursor_pos = strlen(state.input_buffer);
+                                break;
+                                
+                            case SDLK_DOWN:
+                                // Decrement value
+                                if (mod & KMOD_SHIFT) {
+                                    *active_value -= 1.0f;
+                                } else if (mod & KMOD_CTRL) {
+                                    *active_value -= 0.01f;
+                                } else {
+                                    *active_value -= 0.1f;
+                                }
+                                snprintf(state.input_buffer, sizeof(state.input_buffer), "%.3f", *active_value);
+                                state.cursor_pos = strlen(state.input_buffer);
+                                break;
+                                
+                            case SDLK_BACKSPACE:
+                                // Delete character before cursor
+                                if (state.cursor_pos > 0) {
+                                    memmove(&state.input_buffer[state.cursor_pos - 1], 
+                                           &state.input_buffer[state.cursor_pos],
+                                           strlen(&state.input_buffer[state.cursor_pos]) + 1);
+                                    state.cursor_pos--;
+                                }
+                                break;
+                                
+                            case SDLK_LEFT:
+                                // Move cursor left
+                                if (state.cursor_pos > 0) {
+                                    state.cursor_pos--;
+                                }
+                                break;
+                                
+                            case SDLK_RIGHT:
+                                // Move cursor right
+                                if (state.cursor_pos < strlen(state.input_buffer)) {
+                                    state.cursor_pos++;
+                                }
+                                break;
+                                
+                            case SDLK_HOME:
+                                state.cursor_pos = 0;
+                                break;
+                                
+                            case SDLK_END:
+                                state.cursor_pos = strlen(state.input_buffer);
+                                break;
+                                
+                            default:
+                                // Handle text input in SDL_TEXTINPUT event
+                                break;
+                        }
+                        break;  // Don't process other keys when input field is active
+                    }
+                    
+                    // Normal key handling when no input field is active
                     switch (event.key.keysym.sym) {
                         case SDLK_ESCAPE:
                         case SDLK_q:
