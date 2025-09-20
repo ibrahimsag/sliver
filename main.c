@@ -798,11 +798,17 @@ void render_band_summaries(AppState* state) {
     render_text(state, "Band Summary", layout.next, white);
     advance_layout(&layout, 30);
     
-    // Reset button to load weekly schedule
+    // Reset buttons for different presets
     V2 reset_button_pos = {layout.next.x, layout.next.y};
-    V2 reset_button_size = {120, 25};
+    V2 reset_button_size = {80, 25};
     if (render_button(state, "Weekly", reset_button_pos, reset_button_size, false)) {
         init_bands_week(state);
+    }
+    
+    // TZ button next to Weekly
+    V2 tz_button_pos = {reset_button_pos.x + reset_button_size.x + 10, layout.next.y};
+    if (render_button(state, "TZ", tz_button_pos, reset_button_size, false)) {
+        init_bands_tz(state);
     }
     advance_layout(&layout, 35);
     
