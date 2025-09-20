@@ -255,6 +255,8 @@ void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float 
 void draw_circle(SDL_Renderer* renderer, V2 center, float radius);
 void render_band_summaries(AppState* state);
 void generate_squares_from_bands(AppState* state);
+void init_bands_week(AppState* state);
+void init_bands_tz(AppState* state);
 
 // Geometry buffer functions
 void geometry_buffer_init(GeometryBuffer* gb, size_t initial_vertex_capacity, size_t initial_index_capacity) {
@@ -795,6 +797,14 @@ void render_band_summaries(AppState* state) {
     // Title
     render_text(state, "Band Summary", layout.next, white);
     advance_layout(&layout, 30);
+    
+    // Reset button to load weekly schedule
+    V2 reset_button_pos = {layout.next.x, layout.next.y};
+    V2 reset_button_size = {120, 25};
+    if (render_button(state, "Weekly", reset_button_pos, reset_button_size, false)) {
+        init_bands_week(state);
+    }
+    advance_layout(&layout, 35);
     
     // Render each band
     char buffer[256];
@@ -1368,7 +1378,7 @@ void generate_squares_from_bands(AppState* state) {
     }
 }
 
-void init_bands(AppState* state) {
+void init_bands_week(AppState* state) {
     // Clear existing bands
     band_array_clear(&state->bands);
     
@@ -1600,7 +1610,7 @@ int main(int argc, char* argv[]) {
     }
     
     calculate_diagonal(&state);
-    init_bands(&state);
+    init_bands_week(&state);
     
     // Enable text input for input fields
     SDL_StartTextInput();
@@ -1817,14 +1827,6 @@ int main(int argc, char* argv[]) {
                                     SDL_SetWindowFullscreen(state.window, SDL_WINDOW_FULLSCREEN_DESKTOP);
                                 }
                             }
-                            break;
-                        case SDLK_SPACE:
-                            // Reset to original square definitions
-                            init_bands(&state);
-                            break;
-                        case SDLK_r:
-                            // Reset squares
-                            init_bands(&state);
                             break;
                         
                         // Sliver camera controls
