@@ -258,6 +258,7 @@ void render_band_summaries(AppState* state);
 void generate_squares_from_bands(AppState* state);
 void init_bands_week(AppState* state);
 void init_bands_tz(AppState* state);
+void band_array_remove(BandArray* arr, size_t index);
 
 // Geometry buffer functions
 void geometry_buffer_init(GeometryBuffer* gb, size_t initial_vertex_capacity, size_t initial_index_capacity) {
@@ -822,6 +823,15 @@ void render_band_summaries(AppState* state) {
         snprintf(buffer, sizeof(buffer), "Band %zu:", i + 1);
         render_text(state, buffer, layout.next, band->color);
         
+        // Add remove button (X) at the right side
+        V2 remove_pos = {WINDOW_WIDTH - 50, layout.next.y};
+        V2 remove_size = {25, 22};
+        SDL_Color red_tint = {200, 100, 100, 255};
+        if (render_button(state, "X", remove_pos, remove_size, false)) {
+            band_array_remove(&state->bands, i);
+            break;  // Exit loop since array has changed
+        }
+        
         // Add kind toggle button
         const char* kind_name = "Unknown";
         switch (band->kind) {
@@ -1321,6 +1331,16 @@ void band_array_add(BandArray* arr, Band band) {
 
 void band_array_clear(BandArray* arr) {
     arr->length = 0;
+}
+
+void band_array_remove(BandArray* arr, size_t index) {
+    if (index >= arr->length) return;
+    
+    // Shift all elements after index down by one
+    for (size_t i = index; i < arr->length - 1; i++) {
+        arr->ptr[i] = arr->ptr[i + 1];
+    }
+    arr->length--;
 }
 
 // SquareArray management functions
