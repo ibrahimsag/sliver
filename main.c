@@ -54,6 +54,7 @@ typedef struct {
     int wavelength_scale;  // Multiplier for wavelength when kind is WAVE
     bool wave_inverted;  // Whether to use π phase offset for waves
     bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
+    bool follow_previous;  // If true, start position automatically follows end of previous band
 } Band;
 
 typedef struct {
@@ -659,8 +660,8 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, bool
     return hover && !state->mouse_pressed && state->mouse_was_pressed;
 }
 
-// Render an input field for editing a float value
-void render_input_field(AppState* state, float* value, V2 position, V2 size) {
+// Extended version of input field with disabled option
+void render_input_field_ex(AppState* state, float* value, V2 position, V2 size, bool disabled) {
     bool is_active = (state->active_input_field == value);
     bool is_dragging = (state->dragging_input_field == value);
     
@@ -676,10 +677,10 @@ void render_input_field(AppState* state, float* value, V2 position, V2 size) {
                  state->mouse_pos.y >= field_rect.y && state->mouse_pos.y < field_rect.y + field_rect.h;
     
     // Check if hovering with shift (drag mode)
-    bool hover_drag_mode = hover && (SDL_GetModState() & KMOD_SHIFT);
+    bool hover_drag_mode = hover && (SDL_GetModState() & KMOD_SHIFT) && !disabled;
     
-    // Handle mouse interactions
-    if (hover && state->mouse_pressed && !state->mouse_was_pressed) {
+    // Handle mouse interactions (only if not disabled)
+    if (hover && state->mouse_pressed && !state->mouse_was_pressed && !disabled) {
         if (SDL_GetModState() & KMOD_SHIFT) {
             // Shift+click to start dragging
             state->dragging_input_field = value;
@@ -726,7 +727,9 @@ void render_input_field(AppState* state, float* value, V2 position, V2 size) {
     }
     
     // Draw field background
-    if (is_dragging) {
+    if (disabled) {
+        SDL_SetRenderDrawColor(state->renderer, 25, 25, 30, 255);  // Darker when disabled
+    } else if (is_dragging) {
         SDL_SetRenderDrawColor(state->renderer, 70, 55, 70, 255);  // Purple tint when dragging
     } else if (is_active) {
         SDL_SetRenderDrawColor(state->renderer, 60, 65, 70, 255);
@@ -740,7 +743,9 @@ void render_input_field(AppState* state, float* value, V2 position, V2 size) {
     SDL_RenderFillRect(state->renderer, &field_rect);
     
     // Draw field border
-    if (is_dragging) {
+    if (disabled) {
+        SDL_SetRenderDrawColor(state->renderer, 50, 50, 55, 255);  // Dim border when disabled
+    } else if (is_dragging) {
         SDL_SetRenderDrawColor(state->renderer, 150, 100, 200, 255);  // Purple border when dragging
     } else if (is_active) {
         SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
@@ -787,6 +792,11 @@ void render_input_field(AppState* state, float* value, V2 position, V2 size) {
             SDL_RenderDrawLine(state->renderer, cursor_x, position.y + 2, cursor_x, position.y + size.y - 2);
         }
     }
+}
+
+// Simple wrapper for backward compatibility
+void render_input_field(AppState* state, float* value, V2 position, V2 size) {
+    render_input_field_ex(state, value, position, size, false);
 }
 
 void render_band_summaries(AppState* state) {
@@ -915,7 +925,17 @@ void render_band_summaries(AppState* state) {
         render_text(state, "  Start:", layout.next, gray);
         V2 input_pos = {layout.next.x + 120, layout.next.y};
         V2 input_size = {80, 20};
-        render_input_field(state, &band->start, input_pos, input_size);
+        
+        // Add follow_previous toggle button next to start field  
+        V2 follow_button_pos = {input_pos.x + input_size.x + 5, input_pos.y};
+        V2 follow_button_size = {25, 20};
+        const char* follow_text = band->follow_previous ? "^" : " ";
+        if (render_button(state, follow_text, follow_button_pos, follow_button_size, band->follow_previous)) {
+            band->follow_previous = !band->follow_previous;
+        }
+        
+        // Render start field (disabled if follow_previous is true)
+        render_input_field_ex(state, &band->start, input_pos, input_size, band->follow_previous);
         advance_layout(&layout, 20);
         
         render_text(state, "  End:", layout.next, gray);
@@ -1387,10 +1407,11 @@ void band_array_copy_after(BandArray* arr, size_t index) {
     Band original = arr->ptr[index];
     Band copy = original;
     
-    // Start the copy where the original ends
+    // Calculate size once and preserve it
     float size = original.end - original.start;
-    copy.start = original.end;
-    copy.end = copy.start + size;
+    copy.start = original.end;  // Start where the original ends
+    copy.end = copy.start + size;  // Preserve the size
+    copy.follow_previous = true;  // This band should follow the previous one
     
     // Insert right after the original
     band_array_insert(arr, index + 1, copy);
@@ -1454,7 +1475,16 @@ void generate_squares_from_bands(AppState* state) {
     square_array_clear(&state->squares);
     
     for (size_t i = 0; i < state->bands.length; i++) {
-        generate_intervals_from_band(&state->squares, &state->bands.ptr[i]);
+        Band* band = &state->bands.ptr[i];
+        
+        // If this band should follow the previous one, update its start position only
+        if (band->follow_previous && i > 0) {
+            Band* prev_band = &state->bands.ptr[i - 1];
+            band->start = prev_band->end;
+            // Keep the end position as-is, don't move it
+        }
+        
+        generate_intervals_from_band(&state->squares, band);
     }
 }
 
@@ -1480,7 +1510,8 @@ void add_random_band(AppState* state) {
         .color = make_color_oklch(lightness, chroma, random_hue),
         .wavelength_scale = 3,
         .wave_inverted = false,
-        .wave_half_period = false
+        .wave_half_period = false,
+        .follow_previous = false
     };
     
     band_array_add(&state->bands, new_band);
@@ -1503,7 +1534,8 @@ void init_bands_week(AppState* state) {
         .color = make_color_oklch(0.5f, 0.15f, 280.0f),  // Purple in OKLCH
         .wavelength_scale = 3,
         .wave_inverted = false,
-        .wave_half_period = false
+        .wave_half_period = false,
+        .follow_previous = false
     });
     
     // Gray wave band
@@ -1516,7 +1548,8 @@ void init_bands_week(AppState* state) {
         .color = make_color_oklch(0.45f, 0.02f, 0.0f),  // Neutral gray in OKLCH
         .wavelength_scale = 6,
         .wave_inverted = false,
-        .wave_half_period = false
+        .wave_half_period = false,
+        .follow_previous = false
     });
     
     // Blue wave band
@@ -1529,7 +1562,8 @@ void init_bands_week(AppState* state) {
         .color = make_color_oklch(0.7f, 0.18f, 230.0f),  // Blue in OKLCH
         .wavelength_scale = 4,
         .wave_inverted = true,
-        .wave_half_period = false
+        .wave_half_period = false,
+        .follow_previous = false
     });
 
     // Green wave band
@@ -1542,7 +1576,8 @@ void init_bands_week(AppState* state) {
         .color = make_color_oklch(0.75f, 0.2f, 150.0f),  // Light Green in OKLCH
         .wavelength_scale = 8,
         .wave_inverted = false,
-        .wave_half_period = false
+        .wave_half_period = false,
+        .follow_previous = false
     });
     
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
@@ -1555,7 +1590,8 @@ void init_bands_week(AppState* state) {
         .color = {200, 150, 100, 255},  // Orange
         .wavelength_scale = 1,
         .wave_inverted = false,
-        .wave_half_period = false
+        .wave_half_period = false,
+        .follow_previous = false
     });
     
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
@@ -1568,7 +1604,8 @@ void init_bands_week(AppState* state) {
         .color = {200, 150, 100, 255},  // Orange
         .wavelength_scale = 1,
         .wave_inverted = false,
-        .wave_half_period = false
+        .wave_half_period = false,
+        .follow_previous = false
     });
     
     // Sequence 4: single square at 6.6-8.7
@@ -1581,7 +1618,8 @@ void init_bands_week(AppState* state) {
         .color = {150, 200, 150, 255},  // Green
         .wavelength_scale = 2,  // Start with 2x wavelength
         .wave_inverted = false,  // Start with normal phase
-        .wave_half_period = false  // Start with full periods
+        .wave_half_period = false,  // Start with full periods
+        .follow_previous = false
     });
     
     // Generate squares from bands
@@ -1601,7 +1639,8 @@ void init_bands_tz(AppState* state) {
         .color = {160, 160, 160, 255},  // gray
         .wavelength_scale = 3,
         .wave_inverted = false,
-        .wave_half_period = false
+        .wave_half_period = false,
+        .follow_previous = false
     });
 
     band_array_add(&state->bands, (Band){
@@ -1613,7 +1652,8 @@ void init_bands_tz(AppState* state) {
         .color = {160, 160, 200, 255},  // purple
         .wavelength_scale = 6,
         .wave_inverted = false,
-        .wave_half_period = false
+        .wave_half_period = false,
+        .follow_previous = false
     });
 
     band_array_add(&state->bands, (Band){
@@ -1637,7 +1677,8 @@ void init_bands_tz(AppState* state) {
         .color = {100, 250, 200, 255},  // Light Green
         .wavelength_scale = 8,
         .wave_inverted = false,
-        .wave_half_period = false
+        .wave_half_period = false,
+        .follow_previous = false
     });
     
     // Generate squares from bands
