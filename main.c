@@ -259,6 +259,7 @@ void generate_squares_from_bands(AppState* state);
 void init_bands_week(AppState* state);
 void init_bands_tz(AppState* state);
 void band_array_remove(BandArray* arr, size_t index);
+void add_random_band(AppState* state);
 
 // Geometry buffer functions
 void geometry_buffer_init(GeometryBuffer* gb, size_t initial_vertex_capacity, size_t initial_index_capacity) {
@@ -811,6 +812,13 @@ void render_band_summaries(AppState* state) {
     V2 tz_button_pos = {reset_button_pos.x + reset_button_size.x + 10, layout.next.y};
     if (render_button(state, "TZ", tz_button_pos, reset_button_size, false)) {
         init_bands_tz(state);
+    }
+    
+    // Add Band button
+    V2 add_button_pos = {tz_button_pos.x + reset_button_size.x + 10, layout.next.y};
+    V2 add_button_size = {80, 25};
+    if (render_button(state, "+ Band", add_button_pos, add_button_size, false)) {
+        add_random_band(state);
     }
     advance_layout(&layout, 35);
     
@@ -1411,6 +1419,28 @@ SDL_Color make_color_oklch(float L, float C, float h) {
     return color_oklch_to_sdl(oklch);
 }
 
+// Create a new band with random color
+void add_random_band(AppState* state) {
+    // Random hue for variety, fixed lightness for consistency
+    float random_hue = (rand() % 360);
+    float lightness = 0.7f;  // 70% lightness
+    float chroma = 0.15f + (rand() % 100) / 500.0f;  // 0.15 to 0.35 chroma
+    
+    Band new_band = {
+        .start = 0.0f,
+        .end = 1.0f,
+        .stride = 1.0f,
+        .repeat = 0,
+        .kind = KIND_WAVE,  // Default to wave
+        .color = make_color_oklch(lightness, chroma, random_hue),
+        .wavelength_scale = 3,
+        .wave_inverted = false,
+        .wave_half_period = false
+    };
+    
+    band_array_add(&state->bands, new_band);
+}
+
 void init_bands_week(AppState* state) {
     // Clear existing bands
     band_array_clear(&state->bands);
@@ -1451,7 +1481,7 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
         .kind = KIND_WAVE,
-        .color = make_color_oklch(0.6f, 0.18f, 230.0f),  // Blue in OKLCH
+        .color = make_color_oklch(0.7f, 0.18f, 230.0f),  // Blue in OKLCH
         .wavelength_scale = 4,
         .wave_inverted = true,
         .wave_half_period = false
