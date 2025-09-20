@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include <stddef.h>
+#include "color.h"
 
 #define WINDOW_WIDTH 1920
 #define WINDOW_HEIGHT 1080
@@ -1384,59 +1385,66 @@ void generate_squares_from_bands(AppState* state) {
     }
 }
 
+// Helper to generate harmonious colors using OKLCH
+SDL_Color make_color_oklch(float L, float C, float h) {
+    ColorOKLCH oklch = {.L = L, .C = C, .h = h};
+    return color_oklch_to_sdl(oklch);
+}
+
 void init_bands_week(AppState* state) {
     // Clear existing bands
     band_array_clear(&state->bands);
     
-    // Define bands for each sequence (using natural 0-10 range)
-    // Sequence 1: 10 unit squares (0-1, 1-2, ..., 9-10) in dark gray
+    // Using OKLCH for harmonious colors:
+    // L=0.6 for medium brightness, varying chroma and hue for different bands
+    
+    // Purple wave band
     band_array_add(&state->bands, (Band){
         .start = 0.0f,
         .end = 1.0f,     // End of first interval
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .color = {60, 60, 100, 255},  // Dark purple
+        .color = make_color_oklch(0.5f, 0.15f, 280.0f),  // Purple in OKLCH
         .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false
     });
     
-    // Define bands for each sequence (using natural 0-10 range)
-    // Sequence 1: 10 unit squares (0-1, 1-2, ..., 9-10) in dark gray
+    // Gray wave band
     band_array_add(&state->bands, (Band){
         .start = 0.0f,
         .end = 1.0f,     // End of first interval
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .color = {60, 60, 60, 255},  // gray
+        .color = make_color_oklch(0.45f, 0.02f, 0.0f),  // Neutral gray in OKLCH
         .wavelength_scale = 6,
         .wave_inverted = false,
         .wave_half_period = false
     });
     
-    // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
+    // Blue wave band
     band_array_add(&state->bands, (Band){
         .start = -0.7f,
         .end = 0.3f,     // End of first interval (size = 1.0)
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
         .kind = KIND_WAVE,
-        .color = {100, 150, 200, 255},  // Blue
+        .color = make_color_oklch(0.6f, 0.18f, 230.0f),  // Blue in OKLCH
         .wavelength_scale = 4,
         .wave_inverted = true,
         .wave_half_period = false
     });
 
-    // Sequence 2: 8 squares of size 1 (0.3-1.3, 1.3-2.3, ...)
+    // Green wave band
     band_array_add(&state->bands, (Band){
         .start = -1.2f,
         .end = 0.8f,     // End of first interval (size = 2.0)
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
         .kind = KIND_WAVE,
-        .color = {100, 250, 200, 255},  // Light Green
+        .color = make_color_oklch(0.75f, 0.2f, 150.0f),  // Light Green in OKLCH
         .wavelength_scale = 8,
         .wave_inverted = false,
         .wave_half_period = false
