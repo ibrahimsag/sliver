@@ -259,6 +259,7 @@ void generate_squares_from_bands(AppState* state);
 void init_bands_week(AppState* state);
 void init_bands_tz(AppState* state);
 void band_array_remove(BandArray* arr, size_t index);
+void band_array_copy_after(BandArray* arr, size_t index);
 void add_random_band(AppState* state);
 
 // Geometry buffer functions
@@ -831,6 +832,14 @@ void render_band_summaries(AppState* state) {
         snprintf(buffer, sizeof(buffer), "Band %zu:", i + 1);
         render_text(state, buffer, layout.next, band->color);
         
+        // Add copy button (C) near the right side
+        V2 copy_pos = {WINDOW_WIDTH - 50, layout.next.y + 25};
+        V2 copy_size = {25, 22};
+        if (render_button(state, "C", copy_pos, copy_size, false)) {
+            band_array_copy_after(&state->bands, i);
+            break;  // Exit loop since array has changed
+        }
+        
         // Add remove button (X) at the right side
         V2 remove_pos = {WINDOW_WIDTH - 50, layout.next.y};
         V2 remove_size = {25, 22};
@@ -1349,6 +1358,42 @@ void band_array_remove(BandArray* arr, size_t index) {
         arr->ptr[i] = arr->ptr[i + 1];
     }
     arr->length--;
+}
+
+void band_array_insert(BandArray* arr, size_t index, Band band) {
+    // Ensure capacity
+    if (arr->length >= arr->capacity) {
+        size_t new_capacity = arr->capacity * 2;
+        arr->ptr = (Band*)realloc(arr->ptr, new_capacity * sizeof(Band));
+        arr->capacity = new_capacity;
+    }
+    
+    // Clamp index to valid range
+    if (index > arr->length) index = arr->length;
+    
+    // Shift elements after index up by one
+    for (size_t i = arr->length; i > index; i--) {
+        arr->ptr[i] = arr->ptr[i - 1];
+    }
+    
+    // Insert the new band
+    arr->ptr[index] = band;
+    arr->length++;
+}
+
+void band_array_copy_after(BandArray* arr, size_t index) {
+    if (index >= arr->length) return;
+    
+    Band original = arr->ptr[index];
+    Band copy = original;
+    
+    // Start the copy where the original ends
+    float size = original.end - original.start;
+    copy.start = original.end;
+    copy.end = copy.start + size;
+    
+    // Insert right after the original
+    band_array_insert(arr, index + 1, copy);
 }
 
 // SquareArray management functions
