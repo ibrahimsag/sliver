@@ -1664,6 +1664,11 @@ void flatten_bands(BandArray* source, BandArray* dest) {
             // Keep the end position as-is, don't move it
         }
         
+        // Automatically set band to OPEN if start >= end
+        if (band->interval.start >= band->interval.end) {
+            band->kind = BAND_OPEN;
+        }
+        
         if (band->kind == BAND_OPEN) {
             // For open bands, create two intervals: (-inf, end] and [start, +inf)
             Band flattened1 = *band;  // Copy all fields
