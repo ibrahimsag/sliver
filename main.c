@@ -58,10 +58,16 @@ typedef enum {
     KIND_COUNT = 4
 } LineKind;
 
+typedef enum {
+    BAND_CLOSED = 0,    // Normal band with finite interval
+    BAND_OPEN = 1       // Open band extending to infinity
+} BandKind;
+
 typedef struct {
     Interval interval;  // Base interval (start and end positions)
     float stride;  // Distance between interval starts
     int repeat;    // Number of additional intervals (0 = single interval, n = n+1 total intervals)
+    BandKind kind;  // BAND_CLOSED or BAND_OPEN
     LineKind line_kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
     LCH color;     // Color in OKLCH color space
     char* label;  // Label text for the band (pointer into LabelBuffer)
@@ -985,6 +991,15 @@ void render_band_summaries(AppState* state) {
             break;  // Exit loop since array has changed
         }
         
+        // Add band kind toggle button (CLOSED/OPEN)
+        const char* band_kind_name = (band->kind == BAND_OPEN) ? "><" : "<>";
+        V2 band_kind_pos = {layout.next.x, layout.next.y};
+        V2 band_kind_size = {35, 22};
+        if (render_button(state, band_kind_name, band_kind_pos, band_kind_size, false)) {
+            // Toggle between BAND_CLOSED and BAND_OPEN
+            band->kind = (band->kind == BAND_CLOSED) ? BAND_OPEN : BAND_CLOSED;
+        }
+        
         // Add line_kind toggle button
         const char* kind_name = "Unknown";
         switch (band->line_kind) {
@@ -995,7 +1010,7 @@ void render_band_summaries(AppState* state) {
             default: kind_name = "Unknown"; break;
         }
         
-        V2 button_pos = {layout.next.x + 100, layout.next.y};
+        V2 button_pos = {layout.next.x + 45, layout.next.y};
         V2 button_size = {80, 22};
         if (render_button(state, kind_name, button_pos, button_size, false)) {
             // Cycle to next line_kind
@@ -1649,19 +1664,41 @@ void flatten_bands(BandArray* source, BandArray* dest) {
             // Keep the end position as-is, don't move it
         }
         
-        int count = band->repeat + 1;  // repeat=0 means 1 interval
-        float size = band->interval.end - band->interval.start;
-        
-        for (int j = 0; j < count; j++) {
-            Band flattened = *band;  // Copy all fields
-            flattened.interval.start = band->interval.start + j * band->stride;
-            flattened.interval.end = flattened.interval.start + size;
-            flattened.stride = 0;  // No repetition in flattened bands
-            flattened.repeat = 0;  // Single interval
-            flattened.follow_previous = false;  // Flattened bands don't follow
-            // label pointer stays the same - no reallocation
+        if (band->kind == BAND_OPEN) {
+            // For open bands, create two intervals: (-inf, end] and [start, +inf)
+            Band flattened1 = *band;  // Copy all fields
+            flattened1.interval.start = -1000.0f;  // Large negative value for -infinity
+            flattened1.interval.end = band->interval.end;
+            flattened1.stride = 0;
+            flattened1.repeat = 0;
+            flattened1.follow_previous = false;
+            flattened1.kind = BAND_CLOSED;  // Flattened bands are always closed
+            band_array_add(dest, flattened1);
             
-            band_array_add(dest, flattened);
+            Band flattened2 = *band;  // Copy all fields
+            flattened2.interval.start = band->interval.start;
+            flattened2.interval.end = 1000.0f;  // Large positive value for +infinity
+            flattened2.stride = 0;
+            flattened2.repeat = 0;
+            flattened2.follow_previous = false;
+            flattened2.kind = BAND_CLOSED;  // Flattened bands are always closed
+            band_array_add(dest, flattened2);
+        } else {
+            // Normal closed band behavior
+            int count = band->repeat + 1;  // repeat=0 means 1 interval
+            float size = band->interval.end - band->interval.start;
+            
+            for (int j = 0; j < count; j++) {
+                Band flattened = *band;  // Copy all fields
+                flattened.interval.start = band->interval.start + j * band->stride;
+                flattened.interval.end = flattened.interval.start + size;
+                flattened.stride = 0;  // No repetition in flattened bands
+                flattened.repeat = 0;  // Single interval
+                flattened.follow_previous = false;  // Flattened bands don't follow
+                // label pointer stays the same - no reallocation
+                
+                band_array_add(dest, flattened);
+            }
         }
     }
 }
@@ -1683,6 +1720,7 @@ void add_random_band(AppState* state) {
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,
         .repeat = 0,
+        .kind = BAND_CLOSED,  // Default to closed band
         .line_kind = KIND_WAVE,  // Default to wave
         .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
         .label = label_buffer_allocate(&state->label_buffer),  // Empty label
@@ -1708,6 +1746,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
+        .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.5f, .chroma = 0.15f, .hue = 280.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Purple"),
@@ -1722,6 +1761,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
+        .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.45f, .chroma = 0.02f, .hue = 0.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Gray"),
@@ -1736,6 +1776,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = -0.7f, .end = 0.3f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
+        .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.7f, .chroma = 0.18f, .hue = 230.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Blue"),
@@ -1750,6 +1791,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = -1.2f, .end = 0.8f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
+        .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.2f, .hue = 150.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Green"),
@@ -1764,6 +1806,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = 0.2f, .end = 0.7f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
+        .kind = BAND_CLOSED,
         .line_kind = KIND_DOUBLE,
         .color = {.lightness = 0.65f, .chroma = 0.15f, .hue = 40.0f},
         .label = label_buffer_allocate(&state->label_buffer),  // No label
@@ -1778,6 +1821,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = 7.2f, .end = 7.7f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
+        .kind = BAND_CLOSED,
         .line_kind = KIND_DOUBLE,
         .color = {.lightness = 0.65f, .chroma = 0.15f, .hue = 40.0f},
         .label = label_buffer_allocate(&state->label_buffer),  // No label
@@ -1792,6 +1836,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = 4.6f, .end = 8.2f},
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
+        .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.7f, .chroma = 0.1f, .hue = 120.0f},
         .label = label_buffer_allocate(&state->label_buffer),  // No label
@@ -1811,6 +1856,7 @@ void init_bands_tz(AppState* state) {
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
+        .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.0f, .hue = 0.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Gray"),
@@ -1824,6 +1870,7 @@ void init_bands_tz(AppState* state) {
         .interval = {.start = -3.0f/24.0f, .end = -3.0f/24.0f + 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
+        .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.1f, .hue = 285.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Purple"),
@@ -1837,6 +1884,7 @@ void init_bands_tz(AppState* state) {
         .interval = {.start = 3.0f/24.f, .end = 3.0f/24.f + 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
+        .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.15f, .hue = 210.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Blue"),
@@ -1849,6 +1897,7 @@ void init_bands_tz(AppState* state) {
         .interval = {.start = 8.0f/24.f, .end = 8.0f/24.f + 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
+        .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.25f, .hue = 160.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Green"),
