@@ -68,57 +68,48 @@ float v2_length(V2 v) { return sqrtf(v.x * v.x + v.y * v.y); }
 typedef struct {
     V2 start, end;    // diagonal endpoints
 } Diagonal;
-
-typedef struct {
-    float t;          // position along diagonal [0,1]
-    float size;       // size factor [0,1]
-    SDL_Color color;  // square color
-} Square;
 ```
 
 ### Key Functions
-1. `calculate_diagonal()` - Based on selected corner, compute diagonal endpoints
-2. `get_corner_position()` - Return V2 position of a corner (TL, TR, BR, BL)
-3. `draw_square()` - Draw axis-aligned square given two diagonal endpoints (V2 p1, V2 p2)
-4. `draw_line()` - Draw line between two V2 points
-5. `handle_mouse_click()` - Check if V2 mouse position is within radius of any corner
-6. `draw_corner_indicators()` - Draw circles at corners, highlight selected
+- `calculate_diagonal()` - Based on selected corner, compute diagonal endpoints
+- `get_corner_position()` - Return V2 position of a corner (TL, TR, BR, BL)
+- `draw_square()` - Draw axis-aligned square given two diagonal endpoints
+- `draw_line()` - Draw line between two V2 points
+- `handle_mouse_click()` - Check if mouse position is within radius of any corner
+- `draw_corner_indicators()` - Draw circles at corners, highlight selected
 
 ### Rendering Pipeline
-1. Clear screen with background color
-2. Draw bounding square (outline only)
-3. Draw small circles at each corner (highlight selected corner)
-4. Draw diagonal line (the selected diagonal)
-5. Draw one edge of the triangle (from selected corner to one endpoint of diagonal) for orientation
-6. For each square in array:
-   - Calculate center from diagonal position
-   - Draw axis-aligned square
+- Clear screen with background color
+- Draw bounding square (outline only)
+- Draw small circles at each corner (highlight selected corner)
+- Draw diagonal line (the selected diagonal)
+- Draw one edge of the triangle for orientation
+- For each band/interval: calculate position and draw
 
 ## Build Setup
 
 ### Dependencies
 - SDL2
-- SDL2_gfx (optional, for anti-aliased drawing)
+- SDL2_ttf
+- C compiler with C99 support
 
 ### Compilation
 ```bash
-gcc -o squares squares.c `sdl2-config --cflags --libs` -lm
+./build.sh
 ```
 
-## Interactive Features
-- Click within radius of corners to select corner and change diagonal
-- Visual feedback: selected corner highlighted with different color
-- Press number keys 1-9 to add squares at different positions
-- Press +/- to adjust selected square size
-- Press SPACE to randomize square positions
-- Press C to cycle through color schemes
+## Controls
 
-## Experiments to Try
-1. Uniform spacing: Place squares at regular intervals (t = 0, 0.25, 0.5, 0.75, 1.0)
-2. Size gradient: Squares get progressively smaller along diagonal
-3. Overlapping squares with transparency
-4. Animation: Squares sliding along the diagonal
-5. Rotation: Slowly rotate entire configuration around center
+### Mouse
+- Click corner to select diagonal orientation
+- Click UI elements for band management
+- Shift+drag on numeric fields to adjust values
+
+### Keyboard
+- **Arrow Keys**: Navigate sliver space (Left/Right: zoom, Up/Down: pan)
+- **'0'**: Reset sliver camera to show full 0-10 range
+- **F/F11**: Toggle fullscreen
+- **ESC/Q**: Quit application
 
 ## The Sliver Concept
 
@@ -141,66 +132,41 @@ The sliver camera controls how squares are positioned along the diagonal:
 - The sliver transformation windows into this 0-10 space
 - Scale of 0.1 shows the full 0-10 range, scale of 1.0 shows 1 unit
 
-### Controls
-- **Arrow Keys**: Navigate the sliver space
-  - Left/Right: Zoom out/in (scale range: 0.01 to 2.0)
-  - Up/Down: Pan through the parameter space
-- **'0' Key**: Reset sliver camera to show full 0-10 range
+- Centered zoom behavior maintains center point during scaling for intuitive navigation
 
-This is separate from the 2D viewport camera which moves the entire rendered scene.
+## UI System
 
-## UI Implementation
-
-### Text Rendering with Supersampling
-Implemented text rendering using SDL_ttf with a supersampling technique for improved quality:
-- Font loaded at 2x the desired size (36pt instead of 18pt)
-- Text rendered at double resolution then scaled down by half
-- Results in smoother, anti-aliased text especially on HiDPI displays
-- Used SourceCodePro-Regular.ttf for consistent monospace appearance
+### Text Rendering
+- SDL_ttf with supersampling for improved quality
+- Font loaded at 2x size (36pt) and scaled down for anti-aliasing
+- SourceCodePro-Regular.ttf for consistent monospace appearance
+- Labels displayed at bottom-right of rendered squares (top-left of text aligned with square's bottom-right corner)
 
 ### Layout Management
-Created a `Layout` struct for managing UI element positioning:
-```c
-typedef struct {
-    V2 next;  // Next position to draw at
-    V2 max;   // Maximum bounds for layout
-} Layout;
-```
-- `advance_layout()` function automatically moves to next position
-- Prevents overflow by capping at max bounds
-- Enables structured vertical layout of band summaries
+- `Layout` struct manages UI element positioning with `next` position and `max` bounds
+- `advance_layout()` automatically moves to next position with overflow prevention
+- Structured vertical layout for band summaries in UI panel
 
-### Band Summary Display
-The UI panel displays real-time information about bands:
-- Band type (Unit, Offset, Half, Large)
-- Starting position in 0-10 coordinate space
-- Size of intervals
-- Stride and repeat count for multi-interval bands
-- Each band shown in its associated color
+### Immediate Mode UI
+- Button widget with hover highlighting and click detection
+- Dragging on numeric fields won't trigger button clicks when released
+- Mouse position stored in state for cleaner interaction handling
+- Per-band controls for switching drawing styles
+- Wave-specific controls (wavelength scale, phase, period) appear contextually
+- Visual feedback with color-coded borders for different states
 
-### Centered Zoom for Sliver Camera
-Modified zoom behavior to maintain center point during scaling:
-```c
-float center = state.sliver_camera.offset + 0.5f / state.sliver_camera.scale;
-state.sliver_camera.scale *= zoom_factor;
-state.sliver_camera.offset = center - 0.5f / state.sliver_camera.scale;
-```
-This ensures the center of the visible range stays fixed while zooming, providing more intuitive navigation through the 1D parameter space.
+## Color System
 
-## Recent Enhancements
-
-### OKLCH Color Space Integration
-Implemented a single-header library (`color.h`) for perceptually uniform color manipulation:
-- **OKLCH** (OKLab Lightness, Chroma, Hue) provides intuitive color parameters:
-  - Lightness (0-1): Perceptually uniform brightness
-  - Chroma (0-~0.4): Color intensity/saturation
-  - Hue (0-360°): Color angle on the wheel
+### OKLCH Color Space
+- Perceptually uniform color manipulation via `color.h` single-header library
+- **Lightness** (0-1): Perceptually uniform brightness
+- **Chroma** (0-~0.4): Color intensity/saturation  
+- **Hue** (0-360°): Color angle on the wheel
 - Complete bidirectional transformations: sRGB ↔ Linear RGB ↔ OKLab ↔ OKLCH
-- Utility functions for color interpolation, hue rotation, and lightness/chroma adjustment
-- SDL_Color integration for seamless use with existing rendering
-- Enables creation of harmonious color palettes with consistent perceived brightness
+- SDL_Color integration for seamless rendering
+- Enables harmonious color palettes with consistent perceived brightness
 
-### Input Field Enhancements
+### Input Fields
 Numeric input fields with multiple interaction modes:
 - **Text Input**: Click to activate field, type values directly
 - **Mouse Dragging**: Shift+drag horizontally to adjust values
@@ -216,7 +182,7 @@ Numeric input fields with multiple interaction modes:
 - Pointer-based field identity for immediate-mode UI
 - Dragging on numeric fields won't trigger button clicks when released
 
-### Band System Improvements
+## Band System
 - **Interval-based Bands**: Bands use `Interval` struct with start and end positions
 - **Label System**: 
   - Each band has a `char*` label pointing into a centralized `LabelBuffer`
@@ -241,71 +207,50 @@ Numeric input fields with multiple interaction modes:
   - Add button (+ Band) creates new band with random OKLCH color
 - Per-frame band flattening for immediate updates
 
-### Geometry Buffer System
-Implemented a geometry buffer system using SDL2's `SDL_RenderGeometry` for efficient rendering:
+## Rendering System
+
+### Geometry Buffer
+- SDL2's `SDL_RenderGeometry` for efficient rendering
 - Custom `GeometryBuffer` struct manages vertices and indices
-- Thick lines rendered as textured quads instead of multiple thin lines
-- All shapes batched into a single draw call per frame
-- Supports anti-aliased arcs and curves through segment approximation
+- Thick lines rendered as textured quads
+- All shapes batched into single draw call per frame
+- Anti-aliased arcs and curves through segment approximation
 
 ### Drawing Styles (LineKind)
-Four distinct rendering styles for bands:
-1. **SHARP**: Regular rectangles with straight edges
-2. **ROUNDED**: Rectangles with circular arc corners (radius adapts to square size)
-3. **DOUBLE**: Two concentric rectangles with spacing equal to line thickness
-4. **WAVE**: Sine wave edges with configurable parameters
+- **SHARP**: Regular rectangles with straight edges
+- **ROUNDED**: Rectangles with circular arc corners (radius adapts to square size)
+- **DOUBLE**: Two concentric rectangles with spacing equal to line thickness
+- **WAVE**: Sine wave edges with configurable parameters
 
-### Wave Drawing System
-Advanced wave rendering with multiple parameters:
-- **Wavelength Scale**: Integer multiplier (1-10) for wave frequency
-- **Phase Offset**: Toggle between sin(x) and sin(x + π) starting phases
-- **Period Control**: Choose between half or full period endpoints
+### Wave Rendering
+- Wavelength Scale: Integer multiplier (1-10) for wave frequency
+- Phase Offset: Toggle between sin(x) and sin(x + π) starting phases
+- Period Control: Choose between half or full period endpoints
 - Wave amplitude scales with wavelength for visual consistency
 - Automatic wavelength adjustment to match edge endpoints exactly
 
 ### Edge Visibility Culling
-Proper handling of partially visible squares to avoid visual artifacts:
-- When sliver camera transformation clamps intervals to [0,1], the clamped endpoints would create misleading visuals
-- Wave edges make this particularly noticeable - waves would incorrectly appear at viewing boundaries
+- Handles partially visible squares to avoid visual artifacts at view boundaries
 - Bitwise flags (`EDGE_TOP`, `EDGE_RIGHT`, `EDGE_BOTTOM`, `EDGE_LEFT`) control which edges to draw
-- Edges connected to diagonal corners that were outside [0,1] before clamping are hidden
-- This ensures intervals appear to extend beyond the visible range rather than showing false endpoints
+- Edges connected to diagonal corners outside [0,1] before clamping are hidden
+- Intervals appear to extend beyond visible range rather than showing false endpoints
 - Correctly handles all 4 diagonal orientations based on selected corner
-- Helps distinguish between actual interval endpoints and viewing boundaries
 
-### Immediate Mode UI System
-Interactive controls rendered directly each frame:
-- Button widget with hover highlighting and click detection
-- Mouse position stored in state for cleaner interaction handling
-- Per-band controls for switching drawing styles
-- Wave-specific controls (wavelength scale, phase, period) appear contextually
-- Text rendering with supersampled fonts for quality
-- **Extended Input Fields**: `render_input_field_ex()` function supports disabled state
-  - Visual feedback with darker background and dimmer border when disabled
-  - Used for start field when auto-positioning is enabled
 
 ## Lessons Learned
 
 ### Rounded Rectangle Corner Alignment
-When implementing rounded rectangles for squares on a 45° diagonal, we discovered that the corners don't naturally align when squares share diagonal endpoints. The key insight:
+When implementing rounded rectangles for squares on a 45° diagonal, corners don't naturally align when squares share diagonal endpoints.
 
-1. **The Problem**: A rounded rectangle's arc at 45° is inset from the actual corner by `r * (1 - 1/√2)` where `r` is the corner radius.
+- **Problem**: A rounded rectangle's arc at 45° is inset from the actual corner by `r * (1 - 1/√2)` where `r` is the corner radius
+- **Solution**: Extend rectangle dimensions by exactly `r * (1 - 1/√2)` on all sides to make arcs meet seamlessly
+- **Mathematical Basis**: The 45° point on a quarter circle of radius `r` is at `(r/√2, r/√2)` from the circle center, inset from corner by `r - r/√2 = r(1 - 1/√2)`
 
-2. **The Solution**: To make the arcs of adjacent squares meet seamlessly at their shared diagonal point, we need to extend the rectangle dimensions by exactly `r * (1 - 1/√2)` on all sides.
-
-3. **Mathematical Basis**: 
-   - The 45° point on a quarter circle of radius `r` is at `(r/√2, r/√2)` from the circle center
-   - This point is inset from the corner by `r - r/√2 = r(1 - 1/√2)`
-   - By extending the rectangle, we move the arc centers outward so the 45° points align with the original diagonal endpoints
-
-### Animation Techniques
-1. **Bounce Easing**: Implemented `ease_out_bounce` function for natural, playful animation feel
-2. **Dual Animation**: Animating both entering (radius 0→1) and exiting (radius 1→0) elements simultaneously creates smooth transitions
 
 ### SDL2 Rendering Optimizations
-1. **HiDPI Support**: Inherited from previous project, crucial for crisp rendering on high-resolution displays
-2. **Fullscreen Toggle**: F/F11 keys for fullscreen mode, useful for presentations
-3. **Logical Rendering Size**: Using `SDL_RenderSetLogicalSize` for consistent coordinate system regardless of window size
+- **HiDPI Support**: Crucial for crisp rendering on high-resolution displays
+- **Fullscreen Toggle**: F/F11 keys for fullscreen mode
+- **Logical Rendering Size**: Using `SDL_RenderSetLogicalSize` for consistent coordinate system
 
 ### Code Organization Insights
  - **Parameterization**: Using t ∈ [0,1] for positioning along diagonal, but accepting user definitions in different ranges (0-10) for convenience
