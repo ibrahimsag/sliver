@@ -891,28 +891,27 @@ void render_band_summaries(AppState* state) {
         
         // If WAVE kind, show wavelength controls
         if (band->kind == KIND_WAVE) {
-            // Decrement button (divide by 2)
+            // Decrement button (decrease exponent)
             V2 dec_pos = {button_pos.x + button_size.x + 10, layout.next.y};
             V2 small_button_size = {20, 22};
             if (render_button(state, "-", dec_pos, small_button_size, false)) {
-                if (band->wavelength_scale > 1) {
-                    band->wavelength_scale /= 2;
-                    if (band->wavelength_scale < 1) band->wavelength_scale = 1;
+                if (band->wavelength_scale > 0) {
+                    band->wavelength_scale--;
                 }
             }
             
-            // Show current value
+            // Show current value (as 2^n)
             char scale_text[32];
-            snprintf(scale_text, sizeof(scale_text), "%d", band->wavelength_scale);
+            snprintf(scale_text, sizeof(scale_text), "%d", 1 << band->wavelength_scale);
             V2 text_pos = {dec_pos.x + small_button_size.x + 5, layout.next.y};
             SDL_Color white = {255, 255, 255, 255};
             render_text(state, scale_text, text_pos, white);
             
-            // Increment button (multiply by 2)
-            V2 inc_pos = {text_pos.x + 30, layout.next.y};
+            // Increment button (increase exponent)
+            V2 inc_pos = {text_pos.x + 40, layout.next.y};
             if (render_button(state, "+", inc_pos, small_button_size, false)) {
-                if (band->wavelength_scale < 64) {
-                    band->wavelength_scale *= 2;
+                if (band->wavelength_scale < 8) {
+                    band->wavelength_scale++;
                 }
             }
             
@@ -1060,7 +1059,7 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
 void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period, int hide_flags) {
     float thickness = 2.0f;
     float amplitude = thickness * 2.0f;  // Amplitude is 3x thickness
-    float wavelength = thickness * 8.0f * wavelength_scale;  // Wavelength is 8x thickness * scale
+    float wavelength = thickness * 8.0f * (1 << wavelength_scale);  // Wavelength is 8x thickness * 2^scale
     
     // Convert world coordinates to screen
     V2 tl = world_to_screen((V2){x, y}, camera);
@@ -1069,8 +1068,8 @@ void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, floa
     V2 bl = world_to_screen((V2){x, y + h}, camera);
     
     // Scale amplitude and wavelength for screen space
-    // Use log2 of wavelength_scale for more reasonable amplitude scaling
-    float amplitude_scale = 1.0f + log2f(fmaxf(1.0f, (float)wavelength_scale)) * 0.5f;
+    // wavelength_scale is already the exponent, so use it directly for amplitude scaling
+    float amplitude_scale = 1.0f + wavelength_scale * 0.5f;
     float screen_amplitude = amplitude * amplitude_scale * camera->scale;
     float screen_wavelength = wavelength * camera->scale;
     
@@ -1567,7 +1566,7 @@ void add_random_band(AppState* state) {
         .hue = random_hue,
         .lightness = lightness,
         .chroma = chroma,
-        .wavelength_scale = 4,
+        .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1593,7 +1592,7 @@ void init_bands_week(AppState* state) {
         .hue = 280.0f,  // Purple
         .lightness = 0.5f,
         .chroma = 0.15f,
-        .wavelength_scale = 4,
+        .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1609,7 +1608,7 @@ void init_bands_week(AppState* state) {
         .hue = 0.0f,  // Neutral
         .lightness = 0.45f,
         .chroma = 0.02f,
-        .wavelength_scale = 8,
+        .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1625,7 +1624,7 @@ void init_bands_week(AppState* state) {
         .hue = 230.0f,  // Blue
         .lightness = 0.7f,
         .chroma = 0.18f,
-        .wavelength_scale = 4,
+        .wavelength_scale = 1,
         .wave_inverted = true,
         .wave_half_period = false,
         .follow_previous = false
@@ -1641,7 +1640,7 @@ void init_bands_week(AppState* state) {
         .hue = 150.0f,  // Light Green
         .lightness = 0.75f,
         .chroma = 0.2f,
-        .wavelength_scale = 8,
+        .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1657,7 +1656,7 @@ void init_bands_week(AppState* state) {
         .hue = 40.0f,  // Orange
         .lightness = 0.65f,
         .chroma = 0.15f,
-        .wavelength_scale = 2,
+        .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1673,7 +1672,7 @@ void init_bands_week(AppState* state) {
         .hue = 40.0f,  // Orange
         .lightness = 0.65f,
         .chroma = 0.15f,
-        .wavelength_scale = 2,
+        .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1689,7 +1688,7 @@ void init_bands_week(AppState* state) {
         .hue = 120.0f,  // Green
         .lightness = 0.7f,
         .chroma = 0.1f,
-        .wavelength_scale = 2,  // Start with 2x wavelength
+        .wavelength_scale = 1,  // Start with 2^1 = 2x wavelength
         .wave_inverted = false,  // Start with normal phase
         .wave_half_period = false,  // Start with full periods
         .follow_previous = false
@@ -1710,9 +1709,9 @@ void init_bands_tz(AppState* state) {
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
         .hue = 0.0f,  // gray
-        .lightness = 0.6f,
+        .lightness = 0.75f,
         .chroma = 0.0f,
-        .wavelength_scale = 4,
+        .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1724,10 +1723,10 @@ void init_bands_tz(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .hue = 240.0f,  // purple
-        .lightness = 0.65f,
+        .hue = 285.0f,  // purple
+        .lightness = 0.75f,
         .chroma = 0.1f,
-        .wavelength_scale = 8,
+        .wavelength_scale = 2,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
@@ -1740,9 +1739,9 @@ void init_bands_tz(AppState* state) {
         .repeat = 50,     // 8 total intervals
         .kind = KIND_WAVE,
         .hue = 210.0f,  // Blue
-        .lightness = 0.55f,
+        .lightness = 0.75f,
         .chroma = 0.15f,
-        .wavelength_scale = 4,
+        .wavelength_scale = 2,
         .wave_inverted = true,
         .wave_half_period = false
     });
@@ -1756,7 +1755,7 @@ void init_bands_tz(AppState* state) {
         .hue = 160.0f,  // Light Green
         .lightness = 0.75f,
         .chroma = 0.25f,
-        .wavelength_scale = 8,
+        .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
