@@ -106,6 +106,11 @@ typedef struct {
     float scale;  // Zoom level (1.0 = default, >1 = zoomed in, <1 = zoomed out)
 } Camera;
 
+typedef struct {
+    void* ptr;        // Pointer to the field being edited
+    bool is_numeric;  // True for numeric fields, false for text fields
+} ActiveField;
+
 // Sliver: A 2D view/projection of a 1D parameter space
 // Maps the 1D parameter t to a visible window in 2D space
 typedef struct {
@@ -148,7 +153,7 @@ typedef struct {
     bool mouse_pressed;  // Is left mouse button pressed this frame
     bool mouse_was_pressed;  // Was left mouse button pressed last frame
     // Input field state
-    void* active_input_field;  // Pointer to the float being edited
+    ActiveField active_field;  // Currently active input field
     char input_buffer[64];     // Text buffer for current input
     int cursor_pos;            // Cursor position in input buffer
     float input_original_value;  // Original value to restore on cancel
@@ -668,7 +673,7 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, bool
 
 // Full version of input field with disabled option and custom scale
 void render_numeric_input_field_full(AppState* state, float* value, V2 position, V2 size, bool disabled, float drag_scale) {
-    bool is_active = (state->active_input_field == value);
+    bool is_active = (state->active_field.ptr == value && state->active_field.is_numeric);
     bool is_dragging = (state->dragging_input_field == value);
     
     SDL_Rect field_rect = {
@@ -694,7 +699,8 @@ void render_numeric_input_field_full(AppState* state, float* value, V2 position,
             state->drag_start_mouse_x = state->mouse_pos.x;
         } else if (!is_active) {
             // Regular click to activate for typing
-            state->active_input_field = value;
+            state->active_field.ptr = value;
+            state->active_field.is_numeric = true;
             state->input_original_value = *value;
             snprintf(state->input_buffer, sizeof(state->input_buffer), "%.2f", *value);
             state->cursor_pos = strlen(state->input_buffer);
@@ -705,7 +711,7 @@ void render_numeric_input_field_full(AppState* state, float* value, V2 position,
             float new_value = atof(state->input_buffer);
             *value = new_value;
         }
-        state->active_input_field = NULL;
+        state->active_field.ptr = NULL;
     }
     
     // Handle dragging
@@ -800,6 +806,83 @@ void render_numeric_input_field_full(AppState* state, float* value, V2 position,
     }
 }
 
+// Text input field for editing strings
+void render_text_input_field(AppState* state, char* text, size_t max_len, V2 position, V2 size) {
+    bool is_active = (state->active_field.ptr == text && !state->active_field.is_numeric);
+    
+    SDL_Rect field_rect = {
+        (int)position.x,
+        (int)position.y,
+        (int)size.x,
+        (int)size.y
+    };
+    
+    // Check if mouse is over field
+    bool hover = state->mouse_pos.x >= field_rect.x && state->mouse_pos.x < field_rect.x + field_rect.w &&
+                 state->mouse_pos.y >= field_rect.y && state->mouse_pos.y < field_rect.y + field_rect.h;
+    
+    // Handle mouse click to activate
+    if (hover && state->mouse_pressed && !state->mouse_was_pressed && !is_active) {
+        state->active_field.ptr = text;
+        state->active_field.is_numeric = false;
+        // Copy current text to input buffer
+        strncpy(state->input_buffer, text, sizeof(state->input_buffer) - 1);
+        state->input_buffer[sizeof(state->input_buffer) - 1] = '\0';
+        state->cursor_pos = strlen(state->input_buffer);
+        SDL_StartTextInput();
+    } else if (!hover && state->mouse_pressed && is_active) {
+        // Click outside - deactivate and save
+        strncpy(text, state->input_buffer, max_len - 1);
+        text[max_len - 1] = '\0';
+        state->active_field.ptr = NULL;
+        SDL_StopTextInput();
+    }
+    
+    // Draw field background
+    if (is_active) {
+        SDL_SetRenderDrawColor(state->renderer, 60, 65, 70, 255);
+    } else if (hover) {
+        SDL_SetRenderDrawColor(state->renderer, 45, 45, 50, 255);
+    } else {
+        SDL_SetRenderDrawColor(state->renderer, 35, 35, 40, 255);
+    }
+    SDL_RenderFillRect(state->renderer, &field_rect);
+    
+    // Draw field border
+    if (is_active) {
+        SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
+    } else {
+        SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
+    }
+    SDL_RenderDrawRect(state->renderer, &field_rect);
+    
+    // Display text
+    const char* display_text = is_active ? state->input_buffer : text;
+    if (state->font && display_text && strlen(display_text) > 0) {
+        SDL_Color white = {255, 255, 255, 255};
+        V2 text_pos = {position.x + 4, position.y + 2};
+        render_text(state, display_text, text_pos, white);
+        
+        // Draw cursor if active
+        if (is_active) {
+            // Calculate cursor position
+            char temp[256] = {0};
+            strncpy(temp, state->input_buffer, state->cursor_pos);
+            temp[state->cursor_pos] = '\0';
+            
+            int text_width = 0;
+            if (strlen(temp) > 0) {
+                TTF_SizeText(state->font, temp, &text_width, NULL);
+                text_width /= 2;  // Account for supersampling
+            }
+            
+            float cursor_x = text_pos.x + text_width;
+            SDL_SetRenderDrawColor(state->renderer, 255, 255, 255, 255);
+            SDL_RenderDrawLine(state->renderer, cursor_x, position.y + 2, cursor_x, position.y + size.y - 2);
+        }
+    }
+}
+
 void render_band_summaries(AppState* state) {
     Layout layout = {
         .next = {VIEWPORT_WIDTH + 20, 40},
@@ -844,6 +927,12 @@ void render_band_summaries(AppState* state) {
         SDL_Color band_color = make_color_oklch(band->lightness, band->chroma, band->hue);
         render_text(state, buffer, layout.next, band_color);
         
+        // Label input field next to band number
+        V2 label_pos = {layout.next.x + 100, layout.next.y};
+        V2 label_size = {120, 20};
+        render_text_input_field(state, band->label, sizeof(band->label), label_pos, label_size);
+        advance_layout(&layout, 25);
+        
         // Add split button (S) near the right side
         V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
         V2 split_size = {25, 22};
@@ -879,7 +968,7 @@ void render_band_summaries(AppState* state) {
             default: kind_name = "Unknown"; break;
         }
         
-        V2 button_pos = {layout.next.x + 120, layout.next.y};
+        V2 button_pos = {layout.next.x + 100, layout.next.y};
         V2 button_size = {80, 22};
         if (render_button(state, kind_name, button_pos, button_size, false)) {
             // Cycle to next kind
@@ -933,7 +1022,7 @@ void render_band_summaries(AppState* state) {
         
         // Band details
         render_text(state, "Start:", layout.next, gray);
-        V2 input_pos = {layout.next.x + 120, layout.next.y};
+        V2 input_pos = {layout.next.x + 100, layout.next.y};
         V2 input_size = {80, 20};
         
         // Add follow_previous toggle button next to start field  
@@ -949,7 +1038,7 @@ void render_band_summaries(AppState* state) {
         advance_layout(&layout, 20);
         
         render_text(state, "  End:", layout.next, gray);
-        input_pos = (V2){layout.next.x + 120, layout.next.y};
+        input_pos = (V2){layout.next.x + 100, layout.next.y};
         render_numeric_input_field_full(state, &band->end, input_pos, input_size, false, 0.01);
         advance_layout(&layout, 20);
         
@@ -960,7 +1049,7 @@ void render_band_summaries(AppState* state) {
         
         // Hue input field
         render_text(state, "Color:", layout.next, gray);
-        input_pos = (V2){layout.next.x + 120, layout.next.y};
+        input_pos = (V2){layout.next.x + 100, layout.next.y};
         
         // Store old hue to detect changes
         float old_hue = band->hue;
@@ -972,7 +1061,7 @@ void render_band_summaries(AppState* state) {
             while (band->hue >= 360.0f) band->hue -= 360.0f;
         }
 
-        input_pos = (V2){layout.next.x + 120 + input_size.x, layout.next.y};
+        input_pos = (V2){layout.next.x + 100 + input_size.x, layout.next.y};
         // Store old lightness to detect changes
         float old_lightness = band->lightness;
         render_numeric_input_field_full(state, &band->lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
@@ -982,7 +1071,7 @@ void render_band_summaries(AppState* state) {
             while (band->lightness < 0) band->lightness = 0.0f;
             while (band->lightness > 1.0f) band->lightness = 1.0f;
         }
-        input_pos = (V2){layout.next.x + 120 + input_size.x*2, layout.next.y};
+        input_pos = (V2){layout.next.x + 100 + input_size.x*2, layout.next.y};
         // Store old chroma to detect changes
         float old_chroma = band->chroma;
         render_numeric_input_field_full(state, &band->chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
@@ -1975,12 +2064,22 @@ int main(int argc, char* argv[]) {
                     
                 case SDL_TEXTINPUT:
                     // Handle text input for active input field
-                    if (state.active_input_field != NULL) {
+                    if (state.active_field.ptr != NULL) {
                         const char* text = event.text.text;
+                        
                         while (*text) {
                             char c = *text++;
-                            // Accept numbers, decimal point, and minus sign
-                            if ((c >= '0' && c <= '9') || c == '.' || (c == '-' && state.cursor_pos == 0)) {
+                            bool accept = false;
+                            
+                            if (!state.active_field.is_numeric) {
+                                // Accept any printable character for text fields
+                                accept = (c >= 32 && c <= 126);
+                            } else {
+                                // Accept numbers, decimal point, and minus sign for numeric fields
+                                accept = ((c >= '0' && c <= '9') || c == '.' || (c == '-' && state.cursor_pos == 0));
+                            }
+                            
+                            if (accept) {
                                 // Insert character at cursor position
                                 int len = strlen(state.input_buffer);
                                 if (len < sizeof(state.input_buffer) - 1) {
@@ -1997,51 +2096,67 @@ int main(int argc, char* argv[]) {
                     
                 case SDL_KEYDOWN:
                     // Handle input field keyboard input first
-                    if (state.active_input_field != NULL) {
-                        float* active_value = (float*)state.active_input_field;
+                    if (state.active_field.ptr != NULL) {
+                        float* active_value = state.active_field.is_numeric ? (float*)state.active_field.ptr : NULL;
                         SDL_Keycode key = event.key.keysym.sym;
                         SDL_Keymod mod = SDL_GetModState();
                         
                         switch (key) {
-                            case SDLK_ESCAPE:
-                                // Cancel editing and restore original value
-                                *active_value = state.input_original_value;
-                                state.active_input_field = NULL;
+                            case SDLK_ESCAPE: {
+                                // Cancel editing - for text fields, no need to restore
+                                // For numeric fields, restore original value
+                                if (state.active_field.is_numeric && active_value) {
+                                    *active_value = state.input_original_value;
+                                }
+                                state.active_field.ptr = NULL;
+                                SDL_StopTextInput();
                                 break;
+                            }
                                 
                             case SDLK_RETURN:
-                            case SDLK_KP_ENTER:
+                            case SDLK_KP_ENTER: {
                                 // Apply value and deactivate
-                                if (strlen(state.input_buffer) > 0) {
+                                if (!state.active_field.is_numeric) {
+                                    // It's a text field - copy directly to the pointer
+                                    char* text_field = (char*)state.active_field.ptr;
+                                    strncpy(text_field, state.input_buffer, 31);  // Band labels are 32 bytes
+                                    text_field[31] = '\0';
+                                } else if (active_value && strlen(state.input_buffer) > 0) {
                                     *active_value = atof(state.input_buffer);
                                 }
-                                state.active_input_field = NULL;
+                                state.active_field.ptr = NULL;
+                                SDL_StopTextInput();
                                 break;
+                            }
                                 
                             case SDLK_UP:
-                                // Increment value
-                                if (mod & KMOD_SHIFT) {
-                                    *active_value += 1.0f;
-                                } else if (mod & KMOD_CTRL) {
-                                    *active_value += 0.01f;
-                                } else {
-                                    *active_value += 0.1f;
+                                // Increment value (only for numeric fields)
+                                if (state.active_field.is_numeric && active_value) {
+                                    if (mod & KMOD_SHIFT) {
+                                        *active_value += 1.0f;
+                                    } else if (mod & KMOD_CTRL) {
+                                        *active_value += 0.01f;
+                                    } else {
+                                        *active_value += 0.1f;
+                                    }
+                                    snprintf(state.input_buffer, sizeof(state.input_buffer), "%.2f", *active_value);
+                                    state.cursor_pos = strlen(state.input_buffer);
                                 }
-                                snprintf(state.input_buffer, sizeof(state.input_buffer), "%.2f", *active_value);
-                                state.cursor_pos = strlen(state.input_buffer);
                                 break;
                                 
                             case SDLK_DOWN:
-                                // Decrement value
-                                if (mod & KMOD_SHIFT) {
-                                    *active_value -= 1.0f;
-                                } else if (mod & KMOD_CTRL) {
-                                    *active_value -= 0.01f;
-                                } else {
-                                    *active_value -= 0.1f;
+                                // Decrement value (only for numeric fields)
+                                if (state.active_field.is_numeric && active_value) {
+                                    if (mod & KMOD_SHIFT) {
+                                        *active_value -= 1.0f;
+                                    } else if (mod & KMOD_CTRL) {
+                                        *active_value -= 0.01f;
+                                    } else {
+                                        *active_value -= 0.1f;
+                                    }
+                                    snprintf(state.input_buffer, sizeof(state.input_buffer), "%.2f", *active_value);
+                                    state.cursor_pos = strlen(state.input_buffer);
                                 }
-                                snprintf(state.input_buffer, sizeof(state.input_buffer), "%.2f", *active_value);
-                                state.cursor_pos = strlen(state.input_buffer);
                                 break;
                                 
                             case SDLK_BACKSPACE:
