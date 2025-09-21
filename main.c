@@ -53,6 +53,7 @@ typedef struct {
     float hue;     // Hue value in OKLCH color space (0-360)
     float lightness;  // Lightness value in OKLCH (0-1)
     float chroma;    // Chroma value in OKLCH (0-~0.4)
+    char label[32];  // Label text for the band
     int wavelength_scale;  // Multiplier for wavelength when kind is WAVE
     bool wave_inverted;  // Whether to use π phase offset for waves
     bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
@@ -79,6 +80,7 @@ typedef struct {
 typedef struct {
     Interval interval;  // position along diagonal [0,1]
     SDL_Color color;
+    const char* label;  // Pointer to band's label
     SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
     int wavelength_scale;  // Wavelength multiplier for WAVE kind
     bool wave_inverted;  // Whether to use π phase offset for waves
@@ -1345,6 +1347,42 @@ void render(AppState* state) {
                           state->render_ctx.geometry.indices, state->render_ctx.geometry.index_count);
     }
     
+    // Draw labels for squares (after geometry, still within clipping rect)
+    for (size_t i = 0; i < state->squares.length; i++) {
+        Square* sq = &state->squares.ptr[i];
+        
+        // Skip if no label
+        if (!sq->label || sq->label[0] == '\0') continue;
+        
+        // Apply sliver transform to the square's interval
+        Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
+        
+        // Skip squares outside visible range
+        if ((transformed.start > 1.0f && transformed.end > 1.0f) || 
+            (transformed.start < 0.0f && transformed.end < 0.0f)) {
+            continue;
+        }
+        
+        // Clamp to visible range
+        float t_start = fmaxf(0.0f, fminf(1.0f, transformed.start));
+        float t_end = fmaxf(0.0f, fminf(1.0f, transformed.end));
+        
+        // Calculate square corners on diagonal
+        V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, t_start);
+        V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, t_end);
+        
+        // Get bounding box
+        float min_x = fminf(p1.x, p2.x);
+        float min_y = fminf(p1.y, p2.y);
+        float max_x = fmaxf(p1.x, p2.x);
+        float max_y = fmaxf(p1.y, p2.y);
+        
+        // Position label at bottom-right with padding
+        V2 label_pos = world_to_screen((V2){max_x + 3, max_y + 3}, &state->camera);
+        
+        render_text(state, sq->label, label_pos, sq->color);
+    }
+    
     // Clear clipping rect to draw UI
     SDL_RenderSetClipRect(state->renderer, NULL);
     
@@ -1517,6 +1555,7 @@ void generate_intervals_from_band(SquareArray* arr, Band* band) {
         arr->ptr[start_idx + i].interval.start = interval_start;
         arr->ptr[start_idx + i].interval.end = interval_start + size;
         arr->ptr[start_idx + i].color = make_color_oklch(band->lightness, band->chroma, band->hue);  // Compute color from OKLCH
+        arr->ptr[start_idx + i].label = band->label;  // Point to band's label
         arr->ptr[start_idx + i].kind = band->kind;    // Use kind from Band
         arr->ptr[start_idx + i].wavelength_scale = band->wavelength_scale;  // Use wavelength_scale from Band
         arr->ptr[start_idx + i].wave_inverted = band->wave_inverted;  // Use wave_inverted from Band
@@ -1566,6 +1605,7 @@ void add_random_band(AppState* state) {
         .hue = random_hue,
         .lightness = lightness,
         .chroma = chroma,
+        .label = "",  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1592,6 +1632,7 @@ void init_bands_week(AppState* state) {
         .hue = 280.0f,  // Purple
         .lightness = 0.5f,
         .chroma = 0.15f,
+        .label = "Purple",
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1608,6 +1649,7 @@ void init_bands_week(AppState* state) {
         .hue = 0.0f,  // Neutral
         .lightness = 0.45f,
         .chroma = 0.02f,
+        .label = "Gray",
         .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1624,6 +1666,7 @@ void init_bands_week(AppState* state) {
         .hue = 230.0f,  // Blue
         .lightness = 0.7f,
         .chroma = 0.18f,
+        .label = "Blue",
         .wavelength_scale = 1,
         .wave_inverted = true,
         .wave_half_period = false,
@@ -1640,6 +1683,7 @@ void init_bands_week(AppState* state) {
         .hue = 150.0f,  // Light Green
         .lightness = 0.75f,
         .chroma = 0.2f,
+        .label = "Green",
         .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1711,6 +1755,7 @@ void init_bands_tz(AppState* state) {
         .hue = 0.0f,  // gray
         .lightness = 0.75f,
         .chroma = 0.0f,
+        .label = "TZ Gray",
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1726,6 +1771,7 @@ void init_bands_tz(AppState* state) {
         .hue = 285.0f,  // purple
         .lightness = 0.75f,
         .chroma = 0.1f,
+        .label = "TZ Purple",
         .wavelength_scale = 2,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1741,6 +1787,7 @@ void init_bands_tz(AppState* state) {
         .hue = 210.0f,  // Blue
         .lightness = 0.75f,
         .chroma = 0.15f,
+        .label = "TZ Blue",
         .wavelength_scale = 2,
         .wave_inverted = true,
         .wave_half_period = false
@@ -1755,6 +1802,7 @@ void init_bands_tz(AppState* state) {
         .hue = 160.0f,  // Light Green
         .lightness = 0.75f,
         .chroma = 0.25f,
+        .label = "TZ Green",
         .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
