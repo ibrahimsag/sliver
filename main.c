@@ -667,7 +667,7 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, bool
 }
 
 // Full version of input field with disabled option and custom scale
-void render_input_field_full(AppState* state, float* value, V2 position, V2 size, bool disabled, float drag_scale) {
+void render_numeric_input_field_full(AppState* state, float* value, V2 position, V2 size, bool disabled, float drag_scale) {
     bool is_active = (state->active_input_field == value);
     bool is_dragging = (state->dragging_input_field == value);
     
@@ -798,11 +798,6 @@ void render_input_field_full(AppState* state, float* value, V2 position, V2 size
             SDL_RenderDrawLine(state->renderer, cursor_x, position.y + 2, cursor_x, position.y + size.y - 2);
         }
     }
-}
-
-// Simple wrapper for backward compatibility
-void render_input_field(AppState* state, float* value, V2 position, V2 size) {
-    render_input_field_full(state, value, position, size, false, 0.01f);  // Default scale
 }
 
 void render_band_summaries(AppState* state) {
@@ -950,12 +945,12 @@ void render_band_summaries(AppState* state) {
         }
         
         // Render start field (disabled if follow_previous is true)
-        render_input_field_full(state, &band->start, input_pos, input_size, band->follow_previous, 0.01f);
+        render_numeric_input_field_full(state, &band->start, input_pos, input_size, band->follow_previous, 0.01f);
         advance_layout(&layout, 20);
         
         render_text(state, "  End:", layout.next, gray);
         input_pos = (V2){layout.next.x + 120, layout.next.y};
-        render_input_field(state, &band->end, input_pos, input_size);
+        render_numeric_input_field_full(state, &band->end, input_pos, input_size, false, 0.01);
         advance_layout(&layout, 20);
         
         float size = band->end - band->start;
@@ -969,7 +964,7 @@ void render_band_summaries(AppState* state) {
         
         // Store old hue to detect changes
         float old_hue = band->hue;
-        render_input_field_full(state, &band->hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
+        render_numeric_input_field_full(state, &band->hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
         
         // Clamp hue to valid range if it changed
         if (band->hue != old_hue) {
@@ -980,7 +975,7 @@ void render_band_summaries(AppState* state) {
         input_pos = (V2){layout.next.x + 120 + input_size.x, layout.next.y};
         // Store old lightness to detect changes
         float old_lightness = band->lightness;
-        render_input_field_full(state, &band->lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+        render_numeric_input_field_full(state, &band->lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
         
         // Clamp lightness to valid range if it changed
         if (band->lightness != old_lightness) {
@@ -990,7 +985,7 @@ void render_band_summaries(AppState* state) {
         input_pos = (V2){layout.next.x + 120 + input_size.x*2, layout.next.y};
         // Store old chroma to detect changes
         float old_chroma = band->chroma;
-        render_input_field_full(state, &band->chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+        render_numeric_input_field_full(state, &band->chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
         
         // Clamp chroma to valid range if it changed
         if (band->chroma != old_chroma) {
