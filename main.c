@@ -31,8 +31,9 @@ typedef struct {
 } V2;
 
 typedef struct {
-    V2 next;  // Next position to draw at
-    V2 max;   // Maximum bounds for layout
+    V2 next;       // Next position to draw at
+    V2 row_start;  // Start position of current row for horizontal layouts
+    V2 max;        // Maximum bounds for layout
 } Layout;
 
 typedef struct {
@@ -681,8 +682,16 @@ void render_text(AppState* state, const char* text, V2 position, SDL_Color color
     SDL_FreeSurface(surface);
 }
 
-void advance_layout(Layout* layout, float height) {
+void advance_horizontal(Layout* layout, float width) {
+    layout->next.x += width;
+    if (layout->next.x > layout->max.x) {
+        layout->next.x = layout->max.x;
+    }
+}
+
+void advance_vertical(Layout* layout, float height) {
     layout->next.y += height;
+    layout->next.x = layout->row_start.x;  // Reset to start of row
     if (layout->next.y > layout->max.y) {
         layout->next.y = layout->max.y;
     }
@@ -945,7 +954,8 @@ void render_text_input_field(AppState* state, char* text, size_t max_len, V2 pos
 
 void render_band_summaries(AppState* state) {
     Layout layout = {
-        .next = {VIEWPORT_WIDTH + 20, 40},
+        .next = {VIEWPORT_WIDTH + 20, 20},
+        .row_start = {VIEWPORT_WIDTH + 20, 20},
         .max = {WINDOW_WIDTH - 20, WINDOW_HEIGHT - 40}
     };
 
@@ -954,42 +964,39 @@ void render_band_summaries(AppState* state) {
 
     // Title
     render_text(state, "Band Summary", layout.next, white);
-    advance_layout(&layout, 30);
+    advance_vertical(&layout, 30);
+    layout.row_start = layout.next;  // Set row start for button row
 
-    // Reset buttons for different presets
-    V2 reset_button_pos = {layout.next.x, layout.next.y};
-    V2 reset_button_size = {80, 25};
-    if (render_button(state, "Weekly", reset_button_pos, reset_button_size, false)) {
+    // Reset buttons for different presets - using horizontal layout
+    V2 button_size = {80, 25};
+    
+    if (render_button(state, "Weekly", layout.next, button_size, false)) {
         init_bands_week(state);
     }
+    advance_horizontal(&layout, button_size.x + 10);
 
-    // TZ button next to Weekly
-    V2 tz_button_pos = {reset_button_pos.x + reset_button_size.x + 10, layout.next.y};
-    if (render_button(state, "TZ", tz_button_pos, reset_button_size, false)) {
+    if (render_button(state, "TZ", layout.next, button_size, false)) {
         init_bands_tz(state);
     }
+    advance_horizontal(&layout, button_size.x + 10);
 
-    // Random button next to TZ
-    V2 rand_button_pos = {tz_button_pos.x + reset_button_size.x + 10, layout.next.y};
-    if (render_button(state, "Random", rand_button_pos, reset_button_size, false)) {
+    if (render_button(state, "Random", layout.next, button_size, false)) {
         init_bands_rand(state);
     }
-
-    // Add Band button
-    V2 add_button_pos = {rand_button_pos.x + reset_button_size.x + 10, layout.next.y};
-    V2 add_button_size = {80, 25};
-    if (render_button(state, "+ Band", add_button_pos, add_button_size, false)) {
-        add_random_band(state);
-    }
     
-    // Print button on the next line
-    advance_layout(&layout, 30);
+    // Move to next row for Print button
+    advance_vertical(&layout, 30);
     V2 print_button_pos = {layout.next.x, layout.next.y};
     V2 print_button_size = {80, 25};
     if (render_button(state, "Print", print_button_pos, print_button_size, false)) {
         print_bands_as_code(state);
     }
-    advance_layout(&layout, 35);
+    advance_horizontal(&layout, button_size.x + 10);
+
+    if (render_button(state, "+ Band", layout.next, button_size, false)) {
+        add_random_band(state);
+    }
+    advance_vertical(&layout, 35);
 
     // Render each band
     char buffer[256];
@@ -1005,7 +1012,7 @@ void render_band_summaries(AppState* state) {
         V2 label_pos = {layout.next.x + 100, layout.next.y};
         V2 label_size = {120, 20};
         render_text_input_field(state, band->label, 32, label_pos, label_size);
-        advance_layout(&layout, 25);
+        advance_vertical(&layout, 25);
 
         // Add split button (S) near the right side
         V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
@@ -1101,7 +1108,7 @@ void render_band_summaries(AppState* state) {
             }
         }
 
-        advance_layout(&layout, 25);
+        advance_vertical(&layout, 25);
 
         // Band details
         render_text(state, "Start:", layout.next, gray);
@@ -1125,17 +1132,17 @@ void render_band_summaries(AppState* state) {
         if ((SDL_GetModState() & KMOD_GUI) && band->interval.start != old_start) {
             band->interval.end += (band->interval.start - old_start);
         }
-        advance_layout(&layout, 20);
+        advance_vertical(&layout, 20);
 
         render_text(state, "  End:", layout.next, gray);
         input_pos = (V2){layout.next.x + 100, layout.next.y};
         render_numeric_input_field_full(state, &band->interval.end, input_pos, input_size, false, drag_scale);
-        advance_layout(&layout, 20);
+        advance_vertical(&layout, 20);
 
         float size = band->interval.end - band->interval.start;
         snprintf(buffer, sizeof(buffer), " Size: %.2f", size);
         render_text(state, buffer, layout.next, gray);
-        advance_layout(&layout, 20);
+        advance_vertical(&layout, 20);
 
         // Hue input field
         render_text(state, "Color:", layout.next, gray);
@@ -1171,9 +1178,9 @@ void render_band_summaries(AppState* state) {
             while (band->color.chroma < 0) band->color.chroma = 0.0f;
             while (band->color.chroma > 1.0f) band->color.chroma = 1.0f;
         }
-        advance_layout(&layout, 20);
+        advance_vertical(&layout, 20);
 
-        advance_layout(&layout, 10);  // Space between bands
+        advance_vertical(&layout, 10);  // Space between bands
     }
 }
 
