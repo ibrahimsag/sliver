@@ -287,6 +287,8 @@ void label_buffer_init(LabelBuffer* lb) {
 char* label_buffer_allocate(LabelBuffer* lb) {
     assert(lb->size < lb->capacity);  // Die if full
     char* label = lb->ptr + (lb->size * 32);
+    // Default to a single letter from the alphabet, cycling A-Z
+    snprintf(label, 32, "%c", 'A' + (char)(lb->size % 26));
     lb->size++;
     return label;
 }
@@ -1745,6 +1747,7 @@ void init_bands_week(AppState* state) {
     // Clear existing bands and reset label buffer
     band_array_clear(&state->bands);
     state->label_buffer.size = 0;  // Reset label buffer to reclaim all slots
+    memset(state->label_buffer.ptr, 0, state->label_buffer.capacity * 32);  // Clear all label memory
 
     // Using OKLCH for harmonious colors:
     // L=0.6 for medium brightness, varying chroma and hue for different bands
@@ -1859,6 +1862,7 @@ void init_bands_tz(AppState* state) {
     // Clear existing bands and reset label buffer
     band_array_clear(&state->bands);
     state->label_buffer.size = 0;  // Reset label buffer to reclaim all slots
+    memset(state->label_buffer.ptr, 0, state->label_buffer.capacity * 32);  // Clear all label memory
 
     band_array_add(&state->bands, (Band){
         .interval = {.start = 0.0f, .end = 1.0f},
@@ -1920,6 +1924,7 @@ void init_bands_rand(AppState* state) {
     // Clear existing bands and reset label buffer
     band_array_clear(&state->bands);
     state->label_buffer.size = 0;  // Reset label buffer to reclaim all slots
+    memset(state->label_buffer.ptr, 0, state->label_buffer.capacity * 32);  // Clear all label memory
 
     // Add a single random band
     add_random_band(state);
