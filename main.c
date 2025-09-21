@@ -88,21 +88,8 @@ typedef struct {
     V2 start, end;
 } Diagonal;
 
-typedef struct {
-    Interval interval;  // position along diagonal [0,1]
-    LCH color;  // Color in OKLCH space
-    const char* label;  // Pointer to band's label
-    SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
-    int wavelength_scale;  // Wavelength multiplier for WAVE kind
-    bool wave_inverted;  // Whether to use π phase offset for waves
-    bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
-} Square;
-
-typedef struct {
-    Square* ptr;      // Pointer to dynamically allocated array
-    size_t length;    // Number of squares currently in use
-    size_t capacity;  // Total allocated capacity
-} SquareArray;
+// Square is no longer needed - Band has all the same fields and more
+// We use flattened BandArray instead of SquareArray
 
 typedef enum {
     CORNER_TL = 0,
@@ -154,7 +141,7 @@ typedef struct {
     Corner selected_corner;
     Diagonal diagonal;
     BandArray bands;      // Dynamic array of band definitions
-    SquareArray squares;  // Dynamic array of squares
+    BandArray flattened;  // Flattened bands (one per interval)
     LabelBuffer label_buffer;  // Memory pool for band labels
     Camera camera;  // For 2D viewport movement
     SliverCamera sliver_camera;  // For 1D parameter space windowing
@@ -277,7 +264,7 @@ float ease_out_bounce(float t) {
 void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius);
 void draw_circle(SDL_Renderer* renderer, V2 center, float radius);
 void render_band_summaries(AppState* state);
-void generate_squares_from_bands(AppState* state);
+void flatten_bands(BandArray* source, BandArray* dest);
 void init_bands_week(AppState* state);
 void init_bands_tz(AppState* state);
 void init_bands_rand(AppState* state);
@@ -1324,7 +1311,7 @@ void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, f
 
 void render(AppState* state) {
     // Regenerate squares from bands every frame (immediate mode)
-    generate_squares_from_bands(state);
+    flatten_bands(&state->bands, &state->flattened);
     
     // Clear screen
     SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
@@ -1378,9 +1365,9 @@ void render(AppState* state) {
         V2 diag_end_s = world_to_screen(state->diagonal.end, &state->camera);
         geometry_buffer_add_line(&state->render_ctx.geometry, diag_start_s, diag_end_s, 2.0f, diagonal_color);
         
-        // Draw squares along diagonal
-        for (size_t i = 0; i < state->squares.length; i++) {
-            Square* sq = &state->squares.ptr[i];
+        // Draw flattened bands along diagonal
+        for (size_t i = 0; i < state->flattened.length; i++) {
+            Band* sq = &state->flattened.ptr[i];  // Using Band instead of Square
             
             // Apply sliver transform to the square's interval (from 0-10 space to viewport space)
             Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
@@ -1482,9 +1469,9 @@ void render(AppState* state) {
                           state->render_ctx.geometry.indices, state->render_ctx.geometry.index_count);
     }
     
-    // Draw labels for squares (after geometry, still within clipping rect)
-    for (size_t i = 0; i < state->squares.length; i++) {
-        Square* sq = &state->squares.ptr[i];
+    // Draw labels for flattened bands (after geometry, still within clipping rect)
+    for (size_t i = 0; i < state->flattened.length; i++) {
+        Band* sq = &state->flattened.ptr[i];  // Using Band instead of Square
         
         // Skip if no label
         if (!sq->label || sq->label[0] == '\0') continue;
@@ -1651,77 +1638,40 @@ void band_array_split(BandArray* arr, size_t index, LabelBuffer* lb) {
     band_array_insert(arr, index + 1, second_half);
 }
 
-// SquareArray management functions
-void square_array_init(SquareArray* arr, size_t initial_capacity) {
-    arr->ptr = (Square*)malloc(initial_capacity * sizeof(Square));
-    arr->length = 0;
-    arr->capacity = initial_capacity;
-}
+// Square array functions removed - now using flattened BandArray instead
 
-void square_array_free(SquareArray* arr) {
-    free(arr->ptr);
-    arr->ptr = NULL;
-    arr->length = 0;
-    arr->capacity = 0;
-}
-
-void square_array_ensure_capacity(SquareArray* arr, size_t required) {
-    if (required > arr->capacity) {
-        size_t new_capacity = arr->capacity * 2;
-        if (new_capacity < required) {
-            new_capacity = required;
-        }
-        arr->ptr = (Square*)realloc(arr->ptr, new_capacity * sizeof(Square));
-        arr->capacity = new_capacity;
-    }
-}
-
-void square_array_clear(SquareArray* arr) {
-    arr->length = 0;
-}
-
-// Generate intervals from a Band definition into SquareArray
-// Band values are in 0-10 range, stored as-is (sliver camera handles the scaling)
-void generate_intervals_from_band(SquareArray* arr, Band* band) {
-    int count = band->repeat + 1;  // repeat=0 means 1 interval, repeat=n means n+1 intervals
-    float size = band->interval.end - band->interval.start;  // Calculate size from end - start
+// Flatten bands into individual bands (one per interval)
+void flatten_bands(BandArray* source, BandArray* dest) {
+    band_array_clear(dest);
     
-    size_t start_idx = arr->length;
-    square_array_ensure_capacity(arr, arr->length + count);
-    
-    for (int i = 0; i < count; i++) {
-        float interval_start = band->interval.start + i * band->stride;
-        // Store in 0-10 range (sliver camera will handle the transform)
-        arr->ptr[start_idx + i].interval.start = interval_start;
-        arr->ptr[start_idx + i].interval.end = interval_start + size;
-        arr->ptr[start_idx + i].color = band->color;  // Copy color from band
-        arr->ptr[start_idx + i].label = band->label;  // Point to band's label
-        arr->ptr[start_idx + i].kind = band->kind;    // Use kind from Band
-        arr->ptr[start_idx + i].wavelength_scale = band->wavelength_scale;  // Use wavelength_scale from Band
-        arr->ptr[start_idx + i].wave_inverted = band->wave_inverted;  // Use wave_inverted from Band
-        arr->ptr[start_idx + i].wave_half_period = band->wave_half_period;  // Use wave_half_period from Band
-    }
-    
-    arr->length += count;
-}
-
-// Generate all squares from bands
-void generate_squares_from_bands(AppState* state) {
-    square_array_clear(&state->squares);
-    
-    for (size_t i = 0; i < state->bands.length; i++) {
-        Band* band = &state->bands.ptr[i];
+    for (size_t i = 0; i < source->length; i++) {
+        Band* band = &source->ptr[i];
         
         // If this band should follow the previous one, update its start position only
         if (band->follow_previous && i > 0) {
-            Band* prev_band = &state->bands.ptr[i - 1];
+            Band* prev_band = &source->ptr[i - 1];
             band->interval.start = prev_band->interval.end;
             // Keep the end position as-is, don't move it
         }
         
-        generate_intervals_from_band(&state->squares, band);
+        int count = band->repeat + 1;  // repeat=0 means 1 interval
+        float size = band->interval.end - band->interval.start;
+        
+        for (int j = 0; j < count; j++) {
+            Band flattened = *band;  // Copy all fields
+            flattened.interval.start = band->interval.start + j * band->stride;
+            flattened.interval.end = flattened.interval.start + size;
+            flattened.stride = 0;  // No repetition in flattened bands
+            flattened.repeat = 0;  // Single interval
+            flattened.follow_previous = false;  // Flattened bands don't follow
+            // label pointer stays the same - no reallocation
+            
+            band_array_add(dest, flattened);
+        }
     }
 }
+
+// generate_squares_from_bands removed - now using flatten_bands instead
 
 // Helper to generate harmonious colors using OKLCH
 SDL_Color make_color_oklch(float L, float C, float h) {
@@ -1859,7 +1809,7 @@ void init_bands_week(AppState* state) {
     });
     
     // Generate squares from bands
-    generate_squares_from_bands(state);
+    flatten_bands(&state->bands, &state->flattened);
 }
 
 void init_bands_tz(AppState* state) {
@@ -1919,7 +1869,7 @@ void init_bands_tz(AppState* state) {
     });
     
     // Generate squares from bands
-    generate_squares_from_bands(state);
+    flatten_bands(&state->bands, &state->flattened);
 }
 
 void init_bands_rand(AppState* state) {
@@ -1931,7 +1881,7 @@ void init_bands_rand(AppState* state) {
     add_random_band(state);
     
     // Generate squares from bands
-    generate_squares_from_bands(state);
+    flatten_bands(&state->bands, &state->flattened);
 }
 
 int main(int argc, char* argv[]) {
@@ -1963,7 +1913,7 @@ int main(int argc, char* argv[]) {
     
     // Initialize dynamic arrays and label buffer
     band_array_init(&state.bands, 10);
-    square_array_init(&state.squares, 50);
+    band_array_init(&state.flattened, 50);  // Flattened bands instead of squares
     label_buffer_init(&state.label_buffer);
     
     // Create window with HiDPI support (from ../sd) 
@@ -2298,7 +2248,7 @@ int main(int argc, char* argv[]) {
     
     // Cleanup
     band_array_free(&state.bands);
-    square_array_free(&state.squares);
+    band_array_free(&state.flattened);
     render_context_free(&state.render_ctx);
     if (state.font) {
         TTF_CloseFont(state.font);
