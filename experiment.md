@@ -209,28 +209,37 @@ Numeric input fields with multiple interaction modes:
   - Alt+Shift+drag: 0.1 per pixel (coarse control)
 - **Keyboard Controls**: Arrow keys for increment/decrement when field is active
   - Up/Down: ±0.1 (±1.0 with Shift, ±0.01 with Ctrl)
+- **Dynamic Sensitivity**: Drag sensitivity for start/end fields scales with sliver camera zoom
+  - More zoomed in = finer control, zoomed out = coarser control
+  - Formula: `drag_scale = 0.005f / sliver_camera.scale`
 - Visual feedback with color-coded borders for different states
 - Pointer-based field identity for immediate-mode UI
+- Dragging on numeric fields won't trigger button clicks when released
 
 ### Band System Improvements
-- **Start/End Fields**: Bands now use start and end positions instead of start and size
-- Size automatically calculated as `end - start`
-- Editable input fields for both start and end positions with 2 decimal places
+- **Interval-based Bands**: Bands use `Interval` struct with start and end positions
+- **Label System**: 
+  - Each band has a `char*` label pointing into a centralized `LabelBuffer`
+  - Labels displayed at bottom-right of rendered squares (top-left of text aligned with square's bottom-right corner)
+  - Default labels cycle through alphabet (A-Z) based on buffer position
+  - Text input field for editing labels in UI
+  - Memory managed via fixed 4KB buffer with 32-byte slots
+- **Band Kinds**:
+  - `BAND_CLOSED`: Normal finite interval
+  - `BAND_OPEN`: Automatically triggered when start ≥ end, creates two intervals extending to ±infinity
+  - Toggle button (<> for closed, >< for open) to manually switch between open/closed
 - **Auto-positioning**: Bands can automatically follow the previous band's end position
   - `follow_previous` boolean field on Band struct
-  - Toggle button (⇐) next to start field to enable/disable
+  - Toggle button (^) next to start field to enable/disable
   - When enabled, start field is disabled and band automatically positions itself
-  - End position remains fixed, only start moves (band size changes dynamically)
+  - If following causes start ≥ end, band automatically becomes BAND_OPEN
 - **Band Management UI**:
-  - Multiple preset configurations (Weekly, TZ) accessible via buttons
+  - Multiple preset configurations (Weekly, TZ, Random) accessible via buttons
   - Split button (S) divides band at midpoint into two halves
-    - First half keeps original start to midpoint
-    - Second half from midpoint to original end
-    - Second half has `follow_previous` enabled to track first half
   - Copy button (C) duplicates band with same size, positioned after original
   - Remove button (X) to delete individual bands
-  - Add button (+ Band) creates new band with random OKLCH color at 70% lightness
-- Per-frame square generation for immediate updates
+  - Add button (+ Band) creates new band with random OKLCH color
+- Per-frame band flattening for immediate updates
 
 ### Geometry Buffer System
 Implemented a geometry buffer system using SDL2's `SDL_RenderGeometry` for efficient rendering:
@@ -239,8 +248,8 @@ Implemented a geometry buffer system using SDL2's `SDL_RenderGeometry` for effic
 - All shapes batched into a single draw call per frame
 - Supports anti-aliased arcs and curves through segment approximation
 
-### Drawing Styles (SquareKind)
-Four distinct rendering styles for squares:
+### Drawing Styles (LineKind)
+Four distinct rendering styles for bands:
 1. **SHARP**: Regular rectangles with straight edges
 2. **ROUNDED**: Rectangles with circular arc corners (radius adapts to square size)
 3. **DOUBLE**: Two concentric rectangles with spacing equal to line thickness
