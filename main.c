@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <assert.h>
 #include <string.h>
+#include <stdarg.h>
 #include "color.h"
 
 #define WINDOW_WIDTH 1920
@@ -43,6 +44,12 @@ typedef struct {
     size_t size;       // Current number of 32-byte chunks used
     size_t capacity;   // Total number of 32-byte chunks available
 } LabelBuffer;
+
+typedef struct {
+    char* ptr;         // Pointer to the buffer
+    size_t len;        // Current length of string in buffer
+    size_t capacity;   // Total capacity in bytes
+} StringBuilder;
 
 typedef struct {
     float lightness;  // Lightness value in OKLCH (0-1)
@@ -146,6 +153,7 @@ typedef struct {
     BandArray bands;      // Dynamic array of band definitions
     BandArray flattened;  // Flattened bands (one per interval)
     LabelBuffer label_buffer;  // Memory pool for band labels
+    StringBuilder string_builder;  // String builder for building strings
     Camera camera;  // For 2D viewport movement
     SliverCamera sliver_camera;  // For 1D parameter space windowing
     bool dragging;  // For mouse drag panning
@@ -275,7 +283,35 @@ void band_array_remove(BandArray* arr, size_t index);
 void band_array_copy_after(BandArray* arr, size_t index, LabelBuffer* lb);
 void band_array_split(BandArray* arr, size_t index, LabelBuffer* lb);
 void add_random_band(AppState* state);
+void print_bands_as_code(AppState* state);
 SDL_Color make_color_oklch(float L, float C, float h);
+
+// StringBuilder functions
+void string_builder_init(StringBuilder* sb) {
+    sb->capacity = 64 * 1024;  // 64KB buffer
+    sb->ptr = malloc(sb->capacity);
+    sb->len = 0;
+}
+
+void string_builder_clear(StringBuilder* sb) {
+    sb->len = 0;
+    if (sb->ptr) {
+        sb->ptr[0] = '\0';
+    }
+}
+
+void string_append(StringBuilder* sb, const char* format, ...) {
+    if (!sb->ptr || sb->len >= sb->capacity - 1) return;
+    
+    va_list args;
+    va_start(args, format);
+    int written = vsnprintf(sb->ptr + sb->len, sb->capacity - sb->len, format, args);
+    va_end(args);
+    
+    if (written > 0) {
+        sb->len += written;
+    }
+}
 
 // LabelBuffer functions
 void label_buffer_init(LabelBuffer* lb) {
@@ -950,6 +986,14 @@ void render_band_summaries(AppState* state) {
     V2 add_button_size = {80, 25};
     if (render_button(state, "+ Band", add_button_pos, add_button_size, false)) {
         add_random_band(state);
+    }
+    
+    // Print button on the next line
+    advance_layout(&layout, 30);
+    V2 print_button_pos = {layout.next.x, layout.next.y};
+    V2 print_button_size = {80, 25};
+    if (render_button(state, "Print", print_button_pos, print_button_size, false)) {
+        print_bands_as_code(state);
     }
     advance_layout(&layout, 35);
 
@@ -1930,6 +1974,52 @@ void init_bands_rand(AppState* state) {
     add_random_band(state);
 }
 
+void print_bands_as_code(AppState* state) {
+    StringBuilder* sb = &state->string_builder;
+    string_builder_clear(sb);
+    
+    string_append(sb, "// Band array initialization code:\n");
+    string_append(sb, "band_array_clear(&state->bands);\n");
+    string_append(sb, "state->label_buffer.size = 0;\n");
+    string_append(sb, "memset(state->label_buffer.ptr, 0, state->label_buffer.capacity * 32);\n\n");
+    
+    for (size_t i = 0; i < state->bands.length; i++) {
+        Band* band = &state->bands.ptr[i];
+        string_append(sb, "band_array_add(&state->bands, (Band){\n");
+        string_append(sb, "    .interval = {.start = %.2ff, .end = %.2ff},\n", 
+                     band->interval.start, band->interval.end);
+        string_append(sb, "    .stride = %.2ff,\n", band->stride);
+        string_append(sb, "    .repeat = %d,\n", band->repeat);
+        string_append(sb, "    .kind = %s,\n", 
+                     band->kind == BAND_OPEN ? "BAND_OPEN" : "BAND_CLOSED");
+        string_append(sb, "    .line_kind = %s,\n",
+                     band->line_kind == KIND_SHARP ? "KIND_SHARP" :
+                     band->line_kind == KIND_ROUNDED ? "KIND_ROUNDED" :
+                     band->line_kind == KIND_DOUBLE ? "KIND_DOUBLE" : "KIND_WAVE");
+        string_append(sb, "    .color = {.lightness = %.2ff, .chroma = %.2ff, .hue = %.1ff},\n",
+                     band->color.lightness, band->color.chroma, band->color.hue);
+        
+        // Handle label - if it's empty or default, use label_buffer_allocate, otherwise use the string
+        if (band->label && strlen(band->label) > 0 && 
+            !(strlen(band->label) == 1 && band->label[0] >= 'A' && band->label[0] <= 'Z')) {
+            string_append(sb, "    .label = label_buffer_allocate_string(&state->label_buffer, \"%s\"),\n", 
+                         band->label);
+        } else {
+            string_append(sb, "    .label = label_buffer_allocate(&state->label_buffer),\n");
+        }
+        
+        string_append(sb, "    .wavelength_scale = %d,\n", band->wavelength_scale);
+        string_append(sb, "    .wave_inverted = %s,\n", band->wave_inverted ? "true" : "false");
+        string_append(sb, "    .wave_half_period = %s,\n", band->wave_half_period ? "true" : "false");
+        string_append(sb, "    .follow_previous = %s\n", band->follow_previous ? "true" : "false");
+        string_append(sb, "});\n\n");
+    }
+    string_append(sb, "// End of band array initialization\n");
+    
+    // Print to console
+    printf("\n%s\n", sb->ptr);
+}
+
 int main(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
@@ -1957,10 +2047,11 @@ int main(int argc, char* argv[]) {
     state.sliver_camera.offset = 0.0f;  // Start at 0
     state.sliver_camera.scale = 0.1f;   // Scale 1:1 shows full 0-1 in viewport, which maps to 0-10 in our coordinates
 
-    // Initialize dynamic arrays and label buffer
+    // Initialize dynamic arrays and buffers
     band_array_init(&state.bands, 10);
     band_array_init(&state.flattened, 50);  // Flattened bands instead of squares
     label_buffer_init(&state.label_buffer);
+    string_builder_init(&state.string_builder);
 
     // Create window with HiDPI support (from ../sd)
     state.window = SDL_CreateWindow("Squares on Diagonal",
