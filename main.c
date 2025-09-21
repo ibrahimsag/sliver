@@ -44,6 +44,12 @@ typedef struct {
     size_t capacity;   // Total number of 32-byte chunks available
 } LabelBuffer;
 
+typedef struct {
+    float lightness;  // Lightness value in OKLCH (0-1)
+    float chroma;     // Chroma value in OKLCH (0-~0.4)
+    float hue;        // Hue value in OKLCH color space (0-360)
+} LCH;
+
 typedef enum {
     KIND_SHARP = 0,     // Sharp corners
     KIND_ROUNDED = 1,   // Rounded corners
@@ -57,9 +63,7 @@ typedef struct {
     float stride;  // Distance between interval starts
     int repeat;    // Number of additional intervals (0 = single interval, n = n+1 total intervals)
     SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
-    float hue;     // Hue value in OKLCH color space (0-360)
-    float lightness;  // Lightness value in OKLCH (0-1)
-    float chroma;    // Chroma value in OKLCH (0-~0.4)
+    LCH color;     // Color in OKLCH color space
     char* label;  // Label text for the band (pointer into LabelBuffer)
     int wavelength_scale;  // Multiplier for wavelength when kind is WAVE
     bool wave_inverted;  // Whether to use π phase offset for waves
@@ -86,7 +90,7 @@ typedef struct {
 
 typedef struct {
     Interval interval;  // position along diagonal [0,1]
-    SDL_Color color;
+    LCH color;  // Color in OKLCH space
     const char* label;  // Pointer to band's label
     SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
     int wavelength_scale;  // Wavelength multiplier for WAVE kind
@@ -963,7 +967,7 @@ void render_band_summaries(AppState* state) {
         
         // Band header with band number
         snprintf(buffer, sizeof(buffer), "Band %zu:", i + 1);
-        SDL_Color band_color = make_color_oklch(band->lightness, band->chroma, band->hue);
+        SDL_Color band_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
         render_text(state, buffer, layout.next, band_color);
         
         // Label input field next to band number
@@ -1096,34 +1100,34 @@ void render_band_summaries(AppState* state) {
         input_pos = (V2){layout.next.x + 100, layout.next.y};
         
         // Store old hue to detect changes
-        float old_hue = band->hue;
-        render_numeric_input_field_full(state, &band->hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
+        float old_hue = band->color.hue;
+        render_numeric_input_field_full(state, &band->color.hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
         
         // Clamp hue to valid range if it changed
-        if (band->hue != old_hue) {
-            while (band->hue < 0) band->hue += 360.0f;
-            while (band->hue >= 360.0f) band->hue -= 360.0f;
+        if (band->color.hue != old_hue) {
+            while (band->color.hue < 0) band->color.hue += 360.0f;
+            while (band->color.hue >= 360.0f) band->color.hue -= 360.0f;
         }
 
         input_pos = (V2){layout.next.x + 100 + input_size.x, layout.next.y};
         // Store old lightness to detect changes
-        float old_lightness = band->lightness;
-        render_numeric_input_field_full(state, &band->lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+        float old_lightness = band->color.lightness;
+        render_numeric_input_field_full(state, &band->color.lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
         
         // Clamp lightness to valid range if it changed
-        if (band->lightness != old_lightness) {
-            while (band->lightness < 0) band->lightness = 0.0f;
-            while (band->lightness > 1.0f) band->lightness = 1.0f;
+        if (band->color.lightness != old_lightness) {
+            while (band->color.lightness < 0) band->color.lightness = 0.0f;
+            while (band->color.lightness > 1.0f) band->color.lightness = 1.0f;
         }
         input_pos = (V2){layout.next.x + 100 + input_size.x*2, layout.next.y};
         // Store old chroma to detect changes
-        float old_chroma = band->chroma;
-        render_numeric_input_field_full(state, &band->chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+        float old_chroma = band->color.chroma;
+        render_numeric_input_field_full(state, &band->color.chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
         
         // Clamp chroma to valid range if it changed
-        if (band->chroma != old_chroma) {
-            while (band->chroma < 0) band->chroma = 0.0f;
-            while (band->chroma > 1.0f) band->chroma = 1.0f;
+        if (band->color.chroma != old_chroma) {
+            while (band->color.chroma < 0) band->color.chroma = 0.0f;
+            while (band->color.chroma > 1.0f) band->color.chroma = 1.0f;
         }
         advance_layout(&layout, 20);
         
@@ -1429,6 +1433,9 @@ void render(AppState* state) {
             float min_y = fminf(p1.y, p2.y);
             float max_y = fmaxf(p1.y, p2.y);
             
+            // Convert LCH to SDL_Color for rendering
+            SDL_Color sdl_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
+            
             switch (sq->kind) {
                 case KIND_ROUNDED: {
                     float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
@@ -1437,25 +1444,25 @@ void render(AppState* state) {
                                               min_x - extend, min_y - extend, 
                                               (max_x - min_x) + 2 * extend, 
                                               (max_y - min_y) + 2 * extend, 
-                                              base_radius, sq->color, &state->camera, hide_flags);
+                                              base_radius, sdl_color, &state->camera, hide_flags);
                     break;
                 }
                 case KIND_DOUBLE:
                     draw_double_rect_geometry(&state->render_ctx.geometry, 
                                             min_x, min_y, max_x - min_x, max_y - min_y, 
-                                            sq->color, &state->camera, hide_flags);
+                                            sdl_color, &state->camera, hide_flags);
                     break;
                 case KIND_WAVE:
                     draw_wave_rect_geometry(&state->render_ctx.geometry,
                                           min_x, min_y, max_x - min_x, max_y - min_y,
-                                          sq->color, &state->camera, sq->wavelength_scale, 
+                                          sdl_color, &state->camera, sq->wavelength_scale, 
                                           sq->wave_inverted, sq->wave_half_period, hide_flags);
                     break;
                 case KIND_SHARP:
                 default:
                     draw_rounded_rect_geometry(&state->render_ctx.geometry, 
                                               min_x, min_y, max_x - min_x, max_y - min_y, 
-                                              0, sq->color, &state->camera, hide_flags);
+                                              0, sdl_color, &state->camera, hide_flags);
                     break;
             }
         }
@@ -1508,7 +1515,8 @@ void render(AppState* state) {
         // Position label at bottom-right with padding
         V2 label_pos = world_to_screen((V2){max_x + 3, max_y + 3}, &state->camera);
         
-        render_text(state, sq->label, label_pos, sq->color);
+        SDL_Color label_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
+        render_text(state, sq->label, label_pos, label_color);
     }
     
     // Clear clipping rect to draw UI
@@ -1686,7 +1694,7 @@ void generate_intervals_from_band(SquareArray* arr, Band* band) {
         // Store in 0-10 range (sliver camera will handle the transform)
         arr->ptr[start_idx + i].interval.start = interval_start;
         arr->ptr[start_idx + i].interval.end = interval_start + size;
-        arr->ptr[start_idx + i].color = make_color_oklch(band->lightness, band->chroma, band->hue);  // Compute color from OKLCH
+        arr->ptr[start_idx + i].color = band->color;  // Copy color from band
         arr->ptr[start_idx + i].label = band->label;  // Point to band's label
         arr->ptr[start_idx + i].kind = band->kind;    // Use kind from Band
         arr->ptr[start_idx + i].wavelength_scale = band->wavelength_scale;  // Use wavelength_scale from Band
@@ -1733,9 +1741,7 @@ void add_random_band(AppState* state) {
         .stride = 1.0f,
         .repeat = 0,
         .kind = KIND_WAVE,  // Default to wave
-        .hue = random_hue,
-        .lightness = lightness,
-        .chroma = chroma,
+        .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
         .label = label_buffer_allocate(&state->label_buffer),  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
@@ -1760,9 +1766,7 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .hue = 280.0f,  // Purple
-        .lightness = 0.5f,
-        .chroma = 0.15f,
+        .color = {.lightness = 0.5f, .chroma = 0.15f, .hue = 280.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Purple"),
         .wavelength_scale = 1,
         .wave_inverted = false,
@@ -1776,9 +1780,7 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .hue = 0.0f,  // Neutral
-        .lightness = 0.45f,
-        .chroma = 0.02f,
+        .color = {.lightness = 0.45f, .chroma = 0.02f, .hue = 0.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Gray"),
         .wavelength_scale = 3,
         .wave_inverted = false,
@@ -1792,9 +1794,7 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
         .kind = KIND_WAVE,
-        .hue = 230.0f,  // Blue
-        .lightness = 0.7f,
-        .chroma = 0.18f,
+        .color = {.lightness = 0.7f, .chroma = 0.18f, .hue = 230.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Blue"),
         .wavelength_scale = 1,
         .wave_inverted = true,
@@ -1808,9 +1808,7 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
         .kind = KIND_WAVE,
-        .hue = 150.0f,  // Light Green
-        .lightness = 0.75f,
-        .chroma = 0.2f,
+        .color = {.lightness = 0.75f, .chroma = 0.2f, .hue = 150.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Green"),
         .wavelength_scale = 3,
         .wave_inverted = false,
@@ -1824,9 +1822,7 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
         .kind = KIND_DOUBLE,
-        .hue = 40.0f,  // Orange
-        .lightness = 0.65f,
-        .chroma = 0.15f,
+        .color = {.lightness = 0.65f, .chroma = 0.15f, .hue = 40.0f},
         .label = label_buffer_allocate(&state->label_buffer),  // No label
         .wavelength_scale = 1,
         .wave_inverted = false,
@@ -1840,9 +1836,7 @@ void init_bands_week(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
         .kind = KIND_DOUBLE,
-        .hue = 40.0f,  // Orange
-        .lightness = 0.65f,
-        .chroma = 0.15f,
+        .color = {.lightness = 0.65f, .chroma = 0.15f, .hue = 40.0f},
         .label = label_buffer_allocate(&state->label_buffer),  // No label
         .wavelength_scale = 1,
         .wave_inverted = false,
@@ -1856,9 +1850,7 @@ void init_bands_week(AppState* state) {
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
         .kind = KIND_WAVE,
-        .hue = 120.0f,  // Green
-        .lightness = 0.7f,
-        .chroma = 0.1f,
+        .color = {.lightness = 0.7f, .chroma = 0.1f, .hue = 120.0f},
         .label = label_buffer_allocate(&state->label_buffer),  // No label
         .wavelength_scale = 1,  // Start with 2^1 = 2x wavelength
         .wave_inverted = false,  // Start with normal phase
@@ -1880,9 +1872,7 @@ void init_bands_tz(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .hue = 0.0f,  // gray
-        .lightness = 0.75f,
-        .chroma = 0.0f,
+        .color = {.lightness = 0.75f, .chroma = 0.0f, .hue = 0.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Gray"),
         .wavelength_scale = 1,
         .wave_inverted = false,
@@ -1895,9 +1885,7 @@ void init_bands_tz(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = KIND_WAVE,
-        .hue = 285.0f,  // purple
-        .lightness = 0.75f,
-        .chroma = 0.1f,
+        .color = {.lightness = 0.75f, .chroma = 0.1f, .hue = 285.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Purple"),
         .wavelength_scale = 2,
         .wave_inverted = false,
@@ -1910,9 +1898,7 @@ void init_bands_tz(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
         .kind = KIND_WAVE,
-        .hue = 210.0f,  // Blue
-        .lightness = 0.75f,
-        .chroma = 0.15f,
+        .color = {.lightness = 0.75f, .chroma = 0.15f, .hue = 210.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Blue"),
         .wavelength_scale = 2,
         .wave_inverted = true,
@@ -1924,9 +1910,7 @@ void init_bands_tz(AppState* state) {
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
         .kind = KIND_WAVE,
-        .hue = 160.0f,  // Light Green
-        .lightness = 0.75f,
-        .chroma = 0.25f,
+        .color = {.lightness = 0.75f, .chroma = 0.25f, .hue = 160.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Green"),
         .wavelength_scale = 3,
         .wave_inverted = false,
