@@ -56,16 +56,16 @@ typedef enum {
     KIND_DOUBLE = 2,    // Double lines
     KIND_WAVE = 3,      // Wavy lines
     KIND_COUNT = 4
-} SquareKind;
+} LineKind;
 
 typedef struct {
     Interval interval;  // Base interval (start and end positions)
     float stride;  // Distance between interval starts
     int repeat;    // Number of additional intervals (0 = single interval, n = n+1 total intervals)
-    SquareKind kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
+    LineKind line_kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
     LCH color;     // Color in OKLCH color space
     char* label;  // Label text for the band (pointer into LabelBuffer)
-    int wavelength_scale;  // Multiplier for wavelength when kind is WAVE
+    int wavelength_scale;  // Multiplier for wavelength when line_kind is WAVE
     bool wave_inverted;  // Whether to use π phase offset for waves
     bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
     bool follow_previous;  // If true, start position automatically follows end of previous band
@@ -87,9 +87,6 @@ float v2_length(V2 v) { return sqrtf(v.x * v.x + v.y * v.y); }
 typedef struct {
     V2 start, end;
 } Diagonal;
-
-// Square is no longer needed - Band has all the same fields and more
-// We use flattened BandArray instead of SquareArray
 
 typedef enum {
     CORNER_TL = 0,
@@ -988,9 +985,9 @@ void render_band_summaries(AppState* state) {
             break;  // Exit loop since array has changed
         }
         
-        // Add kind toggle button
+        // Add line_kind toggle button
         const char* kind_name = "Unknown";
-        switch (band->kind) {
+        switch (band->line_kind) {
             case KIND_SHARP: kind_name = "Sharp"; break;
             case KIND_ROUNDED: kind_name = "Rounded"; break;
             case KIND_DOUBLE: kind_name = "Double"; break;
@@ -1001,12 +998,12 @@ void render_band_summaries(AppState* state) {
         V2 button_pos = {layout.next.x + 100, layout.next.y};
         V2 button_size = {80, 22};
         if (render_button(state, kind_name, button_pos, button_size, false)) {
-            // Cycle to next kind
-            band->kind = (band->kind + 1) % KIND_COUNT;
+            // Cycle to next line_kind
+            band->line_kind = (band->line_kind + 1) % KIND_COUNT;
         }
         
-        // If WAVE kind, show wavelength controls
-        if (band->kind == KIND_WAVE) {
+        // If WAVE line_kind, show wavelength controls
+        if (band->line_kind == KIND_WAVE) {
             // Decrement button (decrease exponent)
             V2 dec_pos = {button_pos.x + button_size.x + 10, layout.next.y};
             V2 small_button_size = {20, 22};
@@ -1367,13 +1364,13 @@ void render(AppState* state) {
         
         // Draw flattened bands along diagonal
         for (size_t i = 0; i < state->flattened.length; i++) {
-            Band* sq = &state->flattened.ptr[i];  // Using Band instead of Square
+            Band* sq = &state->flattened.ptr[i];
             
             // Apply sliver transform to the square's interval (from 0-10 space to viewport space)
             Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
             
             // Convert to 0-1 range for diagonal lerp (divide by 10 since intervals are in 0-10)
-            // Skip squares completely outside the visible range
+            // Skip bands completely outside the visible range
             if ((transformed.start > 1.0f && transformed.end > 1.0f) || 
                 (transformed.start < 0.0f && transformed.end < 0.0f)) {
                 continue;
@@ -1410,11 +1407,11 @@ void render(AppState* state) {
             transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
             transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
             
-            // Get the two diagonal endpoints for this square
+            // Get the two diagonal endpoints for this band
             V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.start);
             V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.end);
             
-            // Draw square using geometry buffer based on kind
+            // Draw band using geometry buffer based on line_kind
             float min_x = fminf(p1.x, p2.x);
             float max_x = fmaxf(p1.x, p2.x);
             float min_y = fminf(p1.y, p2.y);
@@ -1423,7 +1420,7 @@ void render(AppState* state) {
             // Convert LCH to SDL_Color for rendering
             SDL_Color sdl_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
             
-            switch (sq->kind) {
+            switch (sq->line_kind) {
                 case KIND_ROUNDED: {
                     float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
                     float extend = base_radius * (1.0f - 1.0f/sqrtf(2));
@@ -1476,10 +1473,10 @@ void render(AppState* state) {
         // Skip if no label
         if (!sq->label || sq->label[0] == '\0') continue;
         
-        // Apply sliver transform to the square's interval
+        // Apply sliver transform to the band's interval
         Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
         
-        // Skip squares outside visible range
+        // Skip bands outside visible range
         if ((transformed.start > 1.0f && transformed.end > 1.0f) || 
             (transformed.start < 0.0f && transformed.end < 0.0f)) {
             continue;
@@ -1489,7 +1486,7 @@ void render(AppState* state) {
         float t_start = fmaxf(0.0f, fminf(1.0f, transformed.start));
         float t_end = fmaxf(0.0f, fminf(1.0f, transformed.end));
         
-        // Calculate square corners on diagonal
+        // Calculate band corners on diagonal
         V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, t_start);
         V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, t_end);
         
@@ -1638,8 +1635,6 @@ void band_array_split(BandArray* arr, size_t index, LabelBuffer* lb) {
     band_array_insert(arr, index + 1, second_half);
 }
 
-// Square array functions removed - now using flattened BandArray instead
-
 // Flatten bands into individual bands (one per interval)
 void flatten_bands(BandArray* source, BandArray* dest) {
     band_array_clear(dest);
@@ -1671,8 +1666,6 @@ void flatten_bands(BandArray* source, BandArray* dest) {
     }
 }
 
-// generate_squares_from_bands removed - now using flatten_bands instead
-
 // Helper to generate harmonious colors using OKLCH
 SDL_Color make_color_oklch(float L, float C, float h) {
     ColorOKLCH oklch = {.L = L, .C = C, .h = h};
@@ -1690,7 +1683,7 @@ void add_random_band(AppState* state) {
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,
         .repeat = 0,
-        .kind = KIND_WAVE,  // Default to wave
+        .line_kind = KIND_WAVE,  // Default to wave
         .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
         .label = label_buffer_allocate(&state->label_buffer),  // Empty label
         .wavelength_scale = 1,
@@ -1715,7 +1708,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
-        .kind = KIND_WAVE,
+        .line_kind = KIND_WAVE,
         .color = {.lightness = 0.5f, .chroma = 0.15f, .hue = 280.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Purple"),
         .wavelength_scale = 1,
@@ -1729,7 +1722,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
-        .kind = KIND_WAVE,
+        .line_kind = KIND_WAVE,
         .color = {.lightness = 0.45f, .chroma = 0.02f, .hue = 0.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Gray"),
         .wavelength_scale = 3,
@@ -1743,7 +1736,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = -0.7f, .end = 0.3f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
-        .kind = KIND_WAVE,
+        .line_kind = KIND_WAVE,
         .color = {.lightness = 0.7f, .chroma = 0.18f, .hue = 230.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Blue"),
         .wavelength_scale = 1,
@@ -1757,7 +1750,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = -1.2f, .end = 0.8f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
-        .kind = KIND_WAVE,
+        .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.2f, .hue = 150.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "Green"),
         .wavelength_scale = 3,
@@ -1771,7 +1764,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = 0.2f, .end = 0.7f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
-        .kind = KIND_DOUBLE,
+        .line_kind = KIND_DOUBLE,
         .color = {.lightness = 0.65f, .chroma = 0.15f, .hue = 40.0f},
         .label = label_buffer_allocate(&state->label_buffer),  // No label
         .wavelength_scale = 1,
@@ -1785,7 +1778,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = 7.2f, .end = 7.7f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
-        .kind = KIND_DOUBLE,
+        .line_kind = KIND_DOUBLE,
         .color = {.lightness = 0.65f, .chroma = 0.15f, .hue = 40.0f},
         .label = label_buffer_allocate(&state->label_buffer),  // No label
         .wavelength_scale = 1,
@@ -1799,7 +1792,7 @@ void init_bands_week(AppState* state) {
         .interval = {.start = 4.6f, .end = 8.2f},
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
-        .kind = KIND_WAVE,
+        .line_kind = KIND_WAVE,
         .color = {.lightness = 0.7f, .chroma = 0.1f, .hue = 120.0f},
         .label = label_buffer_allocate(&state->label_buffer),  // No label
         .wavelength_scale = 1,  // Start with 2^1 = 2x wavelength
@@ -1807,9 +1800,6 @@ void init_bands_week(AppState* state) {
         .wave_half_period = false,  // Start with full periods
         .follow_previous = false
     });
-    
-    // Generate squares from bands
-    flatten_bands(&state->bands, &state->flattened);
 }
 
 void init_bands_tz(AppState* state) {
@@ -1821,7 +1811,7 @@ void init_bands_tz(AppState* state) {
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
-        .kind = KIND_WAVE,
+        .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.0f, .hue = 0.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Gray"),
         .wavelength_scale = 1,
@@ -1834,7 +1824,7 @@ void init_bands_tz(AppState* state) {
         .interval = {.start = -3.0f/24.0f, .end = -3.0f/24.0f + 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
-        .kind = KIND_WAVE,
+        .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.1f, .hue = 285.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Purple"),
         .wavelength_scale = 2,
@@ -1847,7 +1837,7 @@ void init_bands_tz(AppState* state) {
         .interval = {.start = 3.0f/24.f, .end = 3.0f/24.f + 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
-        .kind = KIND_WAVE,
+        .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.15f, .hue = 210.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Blue"),
         .wavelength_scale = 2,
@@ -1859,7 +1849,7 @@ void init_bands_tz(AppState* state) {
         .interval = {.start = 8.0f/24.f, .end = 8.0f/24.f + 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
-        .kind = KIND_WAVE,
+        .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.25f, .hue = 160.0f},
         .label = label_buffer_allocate_string(&state->label_buffer, "TZ Green"),
         .wavelength_scale = 3,
@@ -1867,9 +1857,6 @@ void init_bands_tz(AppState* state) {
         .wave_half_period = false,
         .follow_previous = false
     });
-    
-    // Generate squares from bands
-    flatten_bands(&state->bands, &state->flattened);
 }
 
 void init_bands_rand(AppState* state) {
@@ -1879,9 +1866,6 @@ void init_bands_rand(AppState* state) {
     
     // Add a single random band
     add_random_band(state);
-    
-    // Generate squares from bands
-    flatten_bands(&state->bands, &state->flattened);
 }
 
 int main(int argc, char* argv[]) {
