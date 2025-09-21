@@ -862,7 +862,7 @@ void render_text_input_field(AppState* state, char* text, size_t max_len, V2 pos
         strncpy(text, state->input_buffer, max_len - 1);
         text[max_len - 1] = '\0';
         state->active_field.ptr = NULL;
-        SDL_StopTextInput();
+        // Keep text input active
     }
 
     // Draw field background
@@ -2134,7 +2134,7 @@ int main(int argc, char* argv[]) {
                                     *active_value = state.input_original_value;
                                 }
                                 state.active_field.ptr = NULL;
-                                SDL_StopTextInput();
+                                // Keep text input active
                                 break;
                             }
 
@@ -2150,7 +2150,7 @@ int main(int argc, char* argv[]) {
                                     *active_value = atof(state.input_buffer);
                                 }
                                 state.active_field.ptr = NULL;
-                                SDL_StopTextInput();
+                                // Don't stop text input - it causes issues with subsequent fields
                                 break;
                             }
 
