@@ -752,24 +752,12 @@ void render_numeric_input_field_full(AppState* state, float* value, V2 position,
     bool hover = state->mouse_pos.x >= field_rect.x && state->mouse_pos.x < field_rect.x + field_rect.w &&
                  state->mouse_pos.y >= field_rect.y && state->mouse_pos.y < field_rect.y + field_rect.h;
 
-    // Check if hovering with shift (drag mode)
-    bool hover_drag_mode = hover && (SDL_GetModState() & KMOD_SHIFT) && !disabled;
-
     // Handle mouse interactions (only if not disabled)
     if (hover && state->mouse_pressed && !state->mouse_was_pressed && !disabled) {
-        if (SDL_GetModState() & KMOD_SHIFT) {
-            // Shift+click to start dragging
-            state->dragging_input_field = value;
-            state->drag_start_value = *value;
-            state->drag_start_mouse_x = state->mouse_pos.x;
-        } else if (!is_active) {
-            // Regular click to activate for typing
-            state->active_field.ptr = value;
-            state->active_field.is_numeric = true;
-            state->input_original_value = *value;
-            snprintf(state->input_buffer, sizeof(state->input_buffer), "%.2f", *value);
-            state->cursor_pos = strlen(state->input_buffer);
-        }
+        // Start dragging immediately on press
+        state->dragging_input_field = value;
+        state->drag_start_value = *value;
+        state->drag_start_mouse_x = state->mouse_pos.x;
     } else if (!hover && state->mouse_pressed && is_active) {
         // Click outside - deactivate and apply value
         if (strlen(state->input_buffer) > 0) {
@@ -799,7 +787,17 @@ void render_numeric_input_field_full(AppState* state, float* value, V2 position,
                 state->cursor_pos = strlen(state->input_buffer);
             }
         } else {
-            // Stop dragging when mouse released
+            // Mouse released - check if it was a click (minimal movement)
+            float movement = fabs(state->mouse_pos.x - state->drag_start_mouse_x);
+            if (movement < 3.0f && hover && !is_active) {
+                // It was a click, activate text input
+                state->active_field.ptr = value;
+                state->active_field.is_numeric = true;
+                state->input_original_value = *value;
+                snprintf(state->input_buffer, sizeof(state->input_buffer), "%.2f", *value);
+                state->cursor_pos = strlen(state->input_buffer);
+            }
+            // Stop dragging
             state->dragging_input_field = NULL;
         }
     }
@@ -811,8 +809,6 @@ void render_numeric_input_field_full(AppState* state, float* value, V2 position,
         SDL_SetRenderDrawColor(state->renderer, 70, 55, 70, 255);  // Purple tint when dragging
     } else if (is_active) {
         SDL_SetRenderDrawColor(state->renderer, 60, 65, 70, 255);
-    } else if (hover_drag_mode) {
-        SDL_SetRenderDrawColor(state->renderer, 55, 50, 55, 255);  // Hint for drag mode
     } else if (hover) {
         SDL_SetRenderDrawColor(state->renderer, 45, 45, 50, 255);
     } else {
@@ -827,8 +823,6 @@ void render_numeric_input_field_full(AppState* state, float* value, V2 position,
         SDL_SetRenderDrawColor(state->renderer, 150, 100, 200, 255);  // Purple border when dragging
     } else if (is_active) {
         SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
-    } else if (hover_drag_mode) {
-        SDL_SetRenderDrawColor(state->renderer, 120, 80, 140, 255);  // Purple hint for drag mode
     } else {
         SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
     }
