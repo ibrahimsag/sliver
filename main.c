@@ -694,7 +694,8 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, bool
     }
 
     // Return true if button was clicked (mouse was pressed last frame, not pressed this frame, and hovering)
-    return hover && !state->mouse_pressed && state->mouse_was_pressed;
+    // But not if we're dragging an input field
+    return hover && !state->mouse_pressed && state->mouse_was_pressed && !state->dragging_input_field;
 }
 
 // Full version of input field with disabled option and custom scale
@@ -1076,8 +1077,10 @@ void render_band_summaries(AppState* state) {
         }
 
         // Render start field (disabled if follow_previous is true)
+        // Scale drag sensitivity based on sliver camera zoom - more zoom means finer control
+        float drag_scale = 0.005f / state->sliver_camera.scale;  // Inversely proportional to zoom
         float old_start = band->interval.start;
-        render_numeric_input_field_full(state, &band->interval.start, input_pos, input_size, band->follow_previous, 0.01f);
+        render_numeric_input_field_full(state, &band->interval.start, input_pos, input_size, band->follow_previous, drag_scale);
         // If Cmd is held and start changed, move end by the same amount
         if ((SDL_GetModState() & KMOD_GUI) && band->interval.start != old_start) {
             band->interval.end += (band->interval.start - old_start);
@@ -1086,7 +1089,7 @@ void render_band_summaries(AppState* state) {
 
         render_text(state, "  End:", layout.next, gray);
         input_pos = (V2){layout.next.x + 100, layout.next.y};
-        render_numeric_input_field_full(state, &band->interval.end, input_pos, input_size, false, 0.01);
+        render_numeric_input_field_full(state, &band->interval.end, input_pos, input_size, false, drag_scale);
         advance_layout(&layout, 20);
 
         float size = band->interval.end - band->interval.start;
