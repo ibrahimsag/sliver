@@ -308,18 +308,18 @@ When implementing rounded rectangles for squares on a 45° diagonal, we discover
 3. **Logical Rendering Size**: Using `SDL_RenderSetLogicalSize` for consistent coordinate system regardless of window size
 
 ### Code Organization Insights
-1. **Parameterization**: Using t ∈ [0,1] for positioning along diagonal, but accepting user definitions in different ranges (0-10) for convenience
-2. **State Management**: `AppState` struct containing all mutable state makes animation and interaction handling cleaner
-3. **Separation of Concerns**: `draw_square` function takes diagonal endpoints and handles all square rendering logic internally
-4. **Dual Camera System**: Separating 2D viewport navigation from 1D parameter space navigation provides intuitive control
-5. **Interval Abstraction**: Using `Interval` struct for (start, end) pairs makes transformations more composable
-6. **Dynamic Arrays**: Custom `SquareArray` and `BandArray` structs manage their own memory with capacity/length tracking
-7. **Data-Driven Architecture**: 
+ - **Parameterization**: Using t ∈ [0,1] for positioning along diagonal, but accepting user definitions in different ranges (0-10) for convenience
+ - **State Management**: `AppState` struct containing all mutable state makes animation and interaction handling cleaner
+ - **Separation of Concerns**: `draw_square` function takes diagonal endpoints and handles all square rendering logic internally
+ - **Dual Camera System**: Separating 2D viewport navigation from 1D parameter space navigation provides intuitive control
+ - **Interval Abstraction**: Using `Interval` struct for (start, end) pairs makes transformations more composable
+ - **Dynamic Arrays**: Custom `SquareArray` and `BandArray` structs manage their own memory with capacity/length tracking
+ - **Data-Driven Architecture**: 
    - `Band` struct encapsulates pattern generation (start, end, stride, repeat) with visual properties (kind, color)
    - `repeat` field: 0 generates single interval, n generates n+1 intervals total
    - Bands stored persistently in `BandArray`, squares generated on demand
    - Clean separation between data definition and rendering
-8. **Dynamic Band Positioning**:
+ - **Dynamic Band Positioning**:
    - `follow_previous` flag enables bands to automatically track previous band's end position
    - Only start position updates, end remains fixed (dynamic sizing)
    - Implemented in `generate_squares_from_bands()` before interval generation
@@ -329,12 +329,12 @@ When implementing rounded rectangles for squares on a 45° diagonal, we discover
      - Original band becomes first half (end = midpoint)
      - New band becomes second half (start = midpoint, `follow_previous = true`)
      - Both halves retain all visual properties from original
-9. **Split Layout Architecture**:
+ - **Split Layout Architecture**:
    - Viewport on left (1400px) for sliver rendering with clipping
    - UI panel on right (520px) for future controls
    - Mouse interactions bounded to viewport area
    - Camera transforms adjusted for viewport centering
-10. **Natural Coordinate System**:
+ - **Natural Coordinate System**:
    - Bands defined in intuitive 0-10 range
    - Sliver camera manages view into this space
    - Automatic normalization for diagonal interpolation
