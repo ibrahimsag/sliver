@@ -5,6 +5,8 @@
 #include <stdbool.h>
 #include <math.h>
 #include <stddef.h>
+#include <assert.h>
+#include <string.h>
 #include "color.h"
 
 #define WINDOW_WIDTH 1920
@@ -36,6 +38,12 @@ typedef struct {
     float start, end;
 } Interval;
 
+typedef struct {
+    char* ptr;         // Pointer to the fixed buffer
+    size_t size;       // Current number of 32-byte chunks used
+    size_t capacity;   // Total number of 32-byte chunks available
+} LabelBuffer;
+
 typedef enum {
     KIND_SHARP = 0,     // Sharp corners
     KIND_ROUNDED = 1,   // Rounded corners
@@ -53,7 +61,7 @@ typedef struct {
     float hue;     // Hue value in OKLCH color space (0-360)
     float lightness;  // Lightness value in OKLCH (0-1)
     float chroma;    // Chroma value in OKLCH (0-~0.4)
-    char label[32];  // Label text for the band
+    char* label;  // Label text for the band (pointer into LabelBuffer)
     int wavelength_scale;  // Multiplier for wavelength when kind is WAVE
     bool wave_inverted;  // Whether to use π phase offset for waves
     bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
@@ -144,6 +152,7 @@ typedef struct {
     Diagonal diagonal;
     BandArray bands;      // Dynamic array of band definitions
     SquareArray squares;  // Dynamic array of squares
+    LabelBuffer label_buffer;  // Memory pool for band labels
     Camera camera;  // For 2D viewport movement
     SliverCamera sliver_camera;  // For 1D parameter space windowing
     bool dragging;  // For mouse drag panning
@@ -269,10 +278,33 @@ void generate_squares_from_bands(AppState* state);
 void init_bands_week(AppState* state);
 void init_bands_tz(AppState* state);
 void band_array_remove(BandArray* arr, size_t index);
-void band_array_copy_after(BandArray* arr, size_t index);
-void band_array_split(BandArray* arr, size_t index);
+void band_array_copy_after(BandArray* arr, size_t index, LabelBuffer* lb);
+void band_array_split(BandArray* arr, size_t index, LabelBuffer* lb);
 void add_random_band(AppState* state);
 SDL_Color make_color_oklch(float L, float C, float h);
+
+// LabelBuffer functions
+void label_buffer_init(LabelBuffer* lb) {
+    lb->capacity = 128;  // 128 labels * 32 bytes = 4KB
+    lb->ptr = calloc(lb->capacity * 32, 1);  // Zero-initialized
+    lb->size = 0;
+}
+
+char* label_buffer_allocate(LabelBuffer* lb) {
+    assert(lb->size < lb->capacity);  // Die if full
+    char* label = lb->ptr + (lb->size * 32);
+    lb->size++;
+    return label;
+}
+
+char* label_buffer_allocate_string(LabelBuffer* lb, const char* str) {
+    char* label = label_buffer_allocate(lb);
+    if (str) {
+        strncpy(label, str, 31);
+        label[31] = '\0';
+    }
+    return label;
+}
 
 // Geometry buffer functions
 void geometry_buffer_init(GeometryBuffer* gb, size_t initial_vertex_capacity, size_t initial_index_capacity) {
@@ -931,14 +963,14 @@ void render_band_summaries(AppState* state) {
         // Label input field next to band number
         V2 label_pos = {layout.next.x + 100, layout.next.y};
         V2 label_size = {120, 20};
-        render_text_input_field(state, band->label, sizeof(band->label), label_pos, label_size);
+        render_text_input_field(state, band->label, 32, label_pos, label_size);
         advance_layout(&layout, 25);
         
         // Add split button (S) near the right side
         V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
         V2 split_size = {25, 22};
         if (render_button(state, "S", split_pos, split_size, false)) {
-            band_array_split(&state->bands, i);
+            band_array_split(&state->bands, i, &state->label_buffer);
             break;  // Exit loop since array has changed
         }
         
@@ -946,7 +978,7 @@ void render_band_summaries(AppState* state) {
         V2 copy_pos = {WINDOW_WIDTH - 50, layout.next.y + 25};
         V2 copy_size = {25, 22};
         if (render_button(state, "C", copy_pos, copy_size, false)) {
-            band_array_copy_after(&state->bands, i);
+            band_array_copy_after(&state->bands, i, &state->label_buffer);
             break;  // Exit loop since array has changed
         }
         
@@ -1567,11 +1599,14 @@ void band_array_insert(BandArray* arr, size_t index, Band band) {
     arr->length++;
 }
 
-void band_array_copy_after(BandArray* arr, size_t index) {
+void band_array_copy_after(BandArray* arr, size_t index, LabelBuffer* lb) {
     if (index >= arr->length) return;
     
     Band original = arr->ptr[index];
     Band copy = original;
+    
+    // Allocate new label and copy text
+    copy.label = label_buffer_allocate_string(lb, original.label);
     
     // Calculate size once and preserve it
     float size = original.end - original.start;
@@ -1583,7 +1618,7 @@ void band_array_copy_after(BandArray* arr, size_t index) {
     band_array_insert(arr, index + 1, copy);
 }
 
-void band_array_split(BandArray* arr, size_t index) {
+void band_array_split(BandArray* arr, size_t index, LabelBuffer* lb) {
     if (index >= arr->length) return;
     
     Band* original = &arr->ptr[index];
@@ -1591,6 +1626,7 @@ void band_array_split(BandArray* arr, size_t index) {
     
     // Create second half band
     Band second_half = *original;
+    second_half.label = label_buffer_allocate_string(lb, original->label);  // Copy label
     second_half.start = midpoint;
     second_half.follow_previous = true;  // Second half follows the first half
     
@@ -1695,7 +1731,7 @@ void add_random_band(AppState* state) {
         .hue = random_hue,
         .lightness = lightness,
         .chroma = chroma,
-        .label = "",  // Empty label
+        .label = label_buffer_allocate(&state->label_buffer),  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1706,8 +1742,9 @@ void add_random_band(AppState* state) {
 }
 
 void init_bands_week(AppState* state) {
-    // Clear existing bands
+    // Clear existing bands and reset label buffer
     band_array_clear(&state->bands);
+    state->label_buffer.size = 0;  // Reset label buffer to reclaim all slots
     
     // Using OKLCH for harmonious colors:
     // L=0.6 for medium brightness, varying chroma and hue for different bands
@@ -1722,7 +1759,7 @@ void init_bands_week(AppState* state) {
         .hue = 280.0f,  // Purple
         .lightness = 0.5f,
         .chroma = 0.15f,
-        .label = "Purple",
+        .label = label_buffer_allocate_string(&state->label_buffer, "Purple"),
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1739,7 +1776,7 @@ void init_bands_week(AppState* state) {
         .hue = 0.0f,  // Neutral
         .lightness = 0.45f,
         .chroma = 0.02f,
-        .label = "Gray",
+        .label = label_buffer_allocate_string(&state->label_buffer, "Gray"),
         .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1756,7 +1793,7 @@ void init_bands_week(AppState* state) {
         .hue = 230.0f,  // Blue
         .lightness = 0.7f,
         .chroma = 0.18f,
-        .label = "Blue",
+        .label = label_buffer_allocate_string(&state->label_buffer, "Blue"),
         .wavelength_scale = 1,
         .wave_inverted = true,
         .wave_half_period = false,
@@ -1773,7 +1810,7 @@ void init_bands_week(AppState* state) {
         .hue = 150.0f,  // Light Green
         .lightness = 0.75f,
         .chroma = 0.2f,
-        .label = "Green",
+        .label = label_buffer_allocate_string(&state->label_buffer, "Green"),
         .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1790,6 +1827,7 @@ void init_bands_week(AppState* state) {
         .hue = 40.0f,  // Orange
         .lightness = 0.65f,
         .chroma = 0.15f,
+        .label = label_buffer_allocate(&state->label_buffer),  // No label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1806,6 +1844,7 @@ void init_bands_week(AppState* state) {
         .hue = 40.0f,  // Orange
         .lightness = 0.65f,
         .chroma = 0.15f,
+        .label = label_buffer_allocate(&state->label_buffer),  // No label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1822,6 +1861,7 @@ void init_bands_week(AppState* state) {
         .hue = 120.0f,  // Green
         .lightness = 0.7f,
         .chroma = 0.1f,
+        .label = label_buffer_allocate(&state->label_buffer),  // No label
         .wavelength_scale = 1,  // Start with 2^1 = 2x wavelength
         .wave_inverted = false,  // Start with normal phase
         .wave_half_period = false,  // Start with full periods
@@ -1833,8 +1873,9 @@ void init_bands_week(AppState* state) {
 }
 
 void init_bands_tz(AppState* state) {
-    // Clear existing bands
+    // Clear existing bands and reset label buffer
     band_array_clear(&state->bands);
+    state->label_buffer.size = 0;  // Reset label buffer to reclaim all slots
     
     band_array_add(&state->bands, (Band){
         .start = 0.0f,
@@ -1845,7 +1886,7 @@ void init_bands_tz(AppState* state) {
         .hue = 0.0f,  // gray
         .lightness = 0.75f,
         .chroma = 0.0f,
-        .label = "TZ Gray",
+        .label = label_buffer_allocate_string(&state->label_buffer, "TZ Gray"),
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1861,7 +1902,7 @@ void init_bands_tz(AppState* state) {
         .hue = 285.0f,  // purple
         .lightness = 0.75f,
         .chroma = 0.1f,
-        .label = "TZ Purple",
+        .label = label_buffer_allocate_string(&state->label_buffer, "TZ Purple"),
         .wavelength_scale = 2,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1877,7 +1918,7 @@ void init_bands_tz(AppState* state) {
         .hue = 210.0f,  // Blue
         .lightness = 0.75f,
         .chroma = 0.15f,
-        .label = "TZ Blue",
+        .label = label_buffer_allocate_string(&state->label_buffer, "TZ Blue"),
         .wavelength_scale = 2,
         .wave_inverted = true,
         .wave_half_period = false
@@ -1892,7 +1933,7 @@ void init_bands_tz(AppState* state) {
         .hue = 160.0f,  // Light Green
         .lightness = 0.75f,
         .chroma = 0.25f,
-        .label = "TZ Green",
+        .label = label_buffer_allocate_string(&state->label_buffer, "TZ Green"),
         .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1931,9 +1972,10 @@ int main(int argc, char* argv[]) {
     state.sliver_camera.offset = 0.0f;  // Start at 0
     state.sliver_camera.scale = 0.1f;   // Scale 1:1 shows full 0-1 in viewport, which maps to 0-10 in our coordinates
     
-    // Initialize dynamic arrays
+    // Initialize dynamic arrays and label buffer
     band_array_init(&state.bands, 10);
     square_array_init(&state.squares, 50);
+    label_buffer_init(&state.label_buffer);
     
     // Create window with HiDPI support (from ../sd) 
     state.window = SDL_CreateWindow("Squares on Diagonal",
