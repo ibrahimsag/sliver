@@ -727,6 +727,7 @@ void render_numeric_input_field_full(AppState* state, float* value, V2 position,
             }
             *value = state->drag_start_value + delta_x * scale;
             
+            
             // Update display if this field is also active
             if (is_active) {
                 snprintf(state->input_buffer, sizeof(state->input_buffer), "%.2f", *value);
@@ -1034,7 +1035,12 @@ void render_band_summaries(AppState* state) {
         }
         
         // Render start field (disabled if follow_previous is true)
+        float old_start = band->start;
         render_numeric_input_field_full(state, &band->start, input_pos, input_size, band->follow_previous, 0.01f);
+        // If Cmd is held and start changed, move end by the same amount
+        if ((SDL_GetModState() & KMOD_GUI) && band->start != old_start) {
+            band->end += (band->start - old_start);
+        }
         advance_layout(&layout, 20);
         
         render_text(state, "  End:", layout.next, gray);
