@@ -277,6 +277,7 @@ void render_band_summaries(AppState* state);
 void generate_squares_from_bands(AppState* state);
 void init_bands_week(AppState* state);
 void init_bands_tz(AppState* state);
+void init_bands_rand(AppState* state);
 void band_array_remove(BandArray* arr, size_t index);
 void band_array_copy_after(BandArray* arr, size_t index, LabelBuffer* lb);
 void band_array_split(BandArray* arr, size_t index, LabelBuffer* lb);
@@ -942,8 +943,14 @@ void render_band_summaries(AppState* state) {
         init_bands_tz(state);
     }
     
+    // Random button next to TZ
+    V2 rand_button_pos = {tz_button_pos.x + reset_button_size.x + 10, layout.next.y};
+    if (render_button(state, "Random", rand_button_pos, reset_button_size, false)) {
+        init_bands_rand(state);
+    }
+    
     // Add Band button
-    V2 add_button_pos = {tz_button_pos.x + reset_button_size.x + 10, layout.next.y};
+    V2 add_button_pos = {rand_button_pos.x + reset_button_size.x + 10, layout.next.y};
     V2 add_button_size = {80, 25};
     if (render_button(state, "+ Band", add_button_pos, add_button_size, false)) {
         add_random_band(state);
@@ -1944,6 +1951,17 @@ void init_bands_tz(AppState* state) {
     generate_squares_from_bands(state);
 }
 
+void init_bands_rand(AppState* state) {
+    // Clear existing bands and reset label buffer
+    band_array_clear(&state->bands);
+    state->label_buffer.size = 0;  // Reset label buffer to reclaim all slots
+    
+    // Add a single random band
+    add_random_band(state);
+    
+    // Generate squares from bands
+    generate_squares_from_bands(state);
+}
 
 int main(int argc, char* argv[]) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
