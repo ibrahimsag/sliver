@@ -936,7 +936,7 @@ void render_band_summaries(AppState* state) {
         advance_layout(&layout, 25);
         
         // Band details
-        render_text(state, "  Start:", layout.next, gray);
+        render_text(state, "Start:", layout.next, gray);
         V2 input_pos = {layout.next.x + 120, layout.next.y};
         V2 input_size = {80, 20};
         
@@ -958,12 +958,12 @@ void render_band_summaries(AppState* state) {
         advance_layout(&layout, 20);
         
         float size = band->end - band->start;
-        snprintf(buffer, sizeof(buffer), "  Size: %.2f", size);
+        snprintf(buffer, sizeof(buffer), " Size: %.2f", size);
         render_text(state, buffer, layout.next, gray);
         advance_layout(&layout, 20);
         
         // Hue input field
-        render_text(state, "  Hue:", layout.next, gray);
+        render_text(state, "Color:", layout.next, gray);
         input_pos = (V2){layout.next.x + 120, layout.next.y};
         
         // Store old hue to detect changes
@@ -974,6 +974,27 @@ void render_band_summaries(AppState* state) {
         if (band->hue != old_hue) {
             while (band->hue < 0) band->hue += 360.0f;
             while (band->hue >= 360.0f) band->hue -= 360.0f;
+        }
+
+        input_pos = (V2){layout.next.x + 120 + input_size.x, layout.next.y};
+        // Store old lightness to detect changes
+        float old_lightness = band->lightness;
+        render_input_field_full(state, &band->lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+        
+        // Clamp lightness to valid range if it changed
+        if (band->lightness != old_lightness) {
+            while (band->lightness < 0) band->lightness = 0.0f;
+            while (band->lightness > 1.0f) band->lightness = 1.0f;
+        }
+        input_pos = (V2){layout.next.x + 120 + input_size.x*2, layout.next.y};
+        // Store old chroma to detect changes
+        float old_chroma = band->chroma;
+        render_input_field_full(state, &band->chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+        
+        // Clamp chroma to valid range if it changed
+        if (band->chroma != old_chroma) {
+            while (band->chroma < 0) band->chroma = 0.0f;
+            while (band->chroma > 1.0f) band->chroma = 1.0f;
         }
         advance_layout(&layout, 20);
         
