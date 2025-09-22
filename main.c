@@ -71,6 +71,11 @@ typedef enum {
     BAND_OPEN = 1       // Open band extending to infinity
 } BandKind;
 
+typedef enum {
+    LABEL_TOP_LEFT = 0,     // Label at top-left of square
+    LABEL_BOTTOM_RIGHT = 1  // Label at bottom-right of square
+} LabelPosition;
+
 typedef struct {
     Interval interval;  // Base interval (start and end positions)
     float stride;  // Distance between interval starts
@@ -172,6 +177,7 @@ typedef struct {
     void* dragging_input_field;  // Pointer to the float being dragged
     float drag_start_value;      // Value when drag started
     float drag_start_mouse_x;    // Mouse X position when drag started
+    LabelPosition label_position;  // Position for band labels
     bool running;
 } AppState;
 
@@ -1002,6 +1008,16 @@ void render_band_summaries(AppState* state) {
     if (render_button(state, "+ Open", layout.next, button_size, false)) {
         add_open_band(state);
     }
+    
+    // Move to next row for label position toggle
+    advance_vertical(&layout, 30);
+    layout.row_start = layout.next;
+    
+    // Label position toggle button
+    const char* label_pos_text = (state->label_position == LABEL_TOP_LEFT) ? "Labels: TL" : "Labels: BR";
+    if (render_button(state, label_pos_text, layout.next, button_size, false)) {
+        state->label_position = (state->label_position == LABEL_TOP_LEFT) ? LABEL_BOTTOM_RIGHT : LABEL_TOP_LEFT;
+    }
     advance_vertical(&layout, 35);
 
     // Render each band
@@ -1567,8 +1583,13 @@ void render(AppState* state) {
         float max_x = fmaxf(p1.x, p2.x);
         float max_y = fmaxf(p1.y, p2.y);
 
-        // Position label at bottom-right with padding
-        V2 label_pos = world_to_screen((V2){max_x + 3, max_y + 3}, &state->camera);
+        // Position label based on preference
+        V2 label_pos;
+        if (state->label_position == LABEL_TOP_LEFT) {
+            label_pos = world_to_screen((V2){min_x +10, min_y + 10}, &state->camera);
+        } else {  // LABEL_BOTTOM_RIGHT
+            label_pos = world_to_screen((V2){max_x + 4, max_y + 3}, &state->camera);
+        }
 
         SDL_Color label_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
         render_text(state, sq->label, label_pos, label_color);
@@ -2068,6 +2089,7 @@ int main(int argc, char* argv[]) {
     AppState state = {0};
     state.running = true;
     state.selected_corner = CORNER_BR;  // Start with bottom-right selected
+    state.label_position = LABEL_BOTTOM_RIGHT;  // Start with bottom-right labels
     state.bounding_center = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center in viewport
     state.bounding_half = (BOUNDING_SIZE - BOUNDING_PADDING) / 2;
 
