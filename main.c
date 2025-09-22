@@ -970,6 +970,11 @@ void render_band_summaries(AppState* state) {
     // Reset buttons for different presets - using horizontal layout
     V2 button_size = {80, 25};
     
+    if (render_button(state, "Random", layout.next, button_size, false)) {
+        init_bands_rand(state);
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
     if (render_button(state, "Weekly", layout.next, button_size, false)) {
         init_bands_week(state);
     }
@@ -977,11 +982,6 @@ void render_band_summaries(AppState* state) {
 
     if (render_button(state, "TZ", layout.next, button_size, false)) {
         init_bands_tz(state);
-    }
-    advance_horizontal(&layout, button_size.x + 10);
-
-    if (render_button(state, "Random", layout.next, button_size, false)) {
-        init_bands_rand(state);
     }
     
     // Move to next row for Print button
@@ -1128,8 +1128,8 @@ void render_band_summaries(AppState* state) {
         float drag_scale = 0.005f / state->sliver_camera.scale;  // Inversely proportional to zoom
         float old_start = band->interval.start;
         render_numeric_input_field_full(state, &band->interval.start, input_pos, input_size, band->follow_previous, drag_scale);
-        // If Cmd is held and start changed, move end by the same amount
-        if ((SDL_GetModState() & KMOD_GUI) && band->interval.start != old_start) {
+        // By default, move end to keep size fixed (unless Cmd is held for independent movement)
+        if (!(SDL_GetModState() & KMOD_GUI) && band->interval.start != old_start) {
             band->interval.end += (band->interval.start - old_start);
         }
         advance_vertical(&layout, 20);
