@@ -284,6 +284,7 @@ void band_array_remove(BandArray* arr, size_t index);
 void band_array_copy_after(BandArray* arr, size_t index, LabelBuffer* lb);
 void band_array_split(BandArray* arr, size_t index, LabelBuffer* lb);
 void add_random_band(AppState* state);
+void add_open_band(AppState* state);
 void print_bands_as_code(AppState* state);
 SDL_Color make_color_oklch(float L, float C, float h);
 
@@ -995,6 +996,11 @@ void render_band_summaries(AppState* state) {
 
     if (render_button(state, "+ Band", layout.next, button_size, false)) {
         add_random_band(state);
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+    
+    if (render_button(state, "+ Open", layout.next, button_size, false)) {
+        add_open_band(state);
     }
     advance_vertical(&layout, 35);
 
@@ -1785,6 +1791,32 @@ void add_random_band(AppState* state) {
         .follow_previous = false
     };
 
+    band_array_add(&state->bands, new_band);
+}
+
+void add_open_band(AppState* state) {
+    // Calculate center of sliver camera view
+    float center = state->sliver_camera.offset + 0.5f / state->sliver_camera.scale;
+    
+    // Random hue for variety, fixed lightness for consistency
+    float random_hue = (rand() % 360);
+    float lightness = 0.7f;  // 70% lightness
+    float chroma = 0.15f + (rand() % 100) / 500.0f;  // 0.15 to 0.35 chroma
+    
+    Band new_band = {
+        .interval = {.start = center, .end = center},  // Start = end triggers BAND_OPEN
+        .stride = 1.0f,
+        .repeat = 0,
+        .kind = BAND_OPEN,  // Will be set automatically when start >= end
+        .line_kind = KIND_WAVE,  // Default to wave
+        .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
+        .label = label_buffer_allocate(&state->label_buffer),  // Empty label
+        .wavelength_scale = 1,
+        .wave_inverted = false,
+        .wave_half_period = false,
+        .follow_previous = false
+    };
+    
     band_array_add(&state->bands, new_band);
 }
 
