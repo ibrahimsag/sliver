@@ -1032,7 +1032,7 @@ void render_band_summaries(AppState* state) {
         Band* band = &state->bands.ptr[i];
 
         // Band header with band number
-        snprintf(buffer, sizeof(buffer), "Band %zu:", i + 1);
+        snprintf(buffer, sizeof(buffer), "    %zu:", i + 1);
         SDL_Color band_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
         render_text(state, buffer, layout.next, band_color);
 
@@ -1066,6 +1066,71 @@ void render_band_summaries(AppState* state) {
             band_array_remove(&state->bands, i);
             break;  // Exit loop since array has changed
         }
+
+        // Band details
+        render_text(state, "Start:", layout.next, band_color);
+        V2 input_pos = {layout.next.x + 100, layout.next.y};
+        V2 input_size = {80, 20};
+
+        // Add follow_previous toggle button next to start field
+        V2 follow_button_pos = {input_pos.x + input_size.x + 5, input_pos.y};
+        V2 follow_button_size = {25, 20};
+        const char* follow_text = band->follow_previous ? "^" : " ";
+        if (render_button(state, follow_text, follow_button_pos, follow_button_size, band->follow_previous)) {
+            band->follow_previous = !band->follow_previous;
+        }
+
+        // Render start field (disabled if follow_previous is true)
+        // Scale drag sensitivity based on sliver camera zoom - more zoom means finer control
+        float drag_scale = 0.005f / state->sliver_camera.scale;  // Inversely proportional to zoom
+        float old_start = band->interval.start;
+        render_numeric_input_field_full(state, &band->interval.start, input_pos, input_size, band->follow_previous, drag_scale);
+        // By default, move end to keep size fixed (unless Cmd is held for independent movement)
+        if (!(SDL_GetModState() & KMOD_GUI) && band->interval.start != old_start) {
+            band->interval.end += (band->interval.start - old_start);
+        }
+        advance_vertical(&layout, 20);
+
+        render_text(state, "  End:", layout.next, band_color);
+        input_pos = (V2){layout.next.x + 100, layout.next.y};
+        render_numeric_input_field_full(state, &band->interval.end, input_pos, input_size, false, drag_scale);
+        advance_vertical(&layout, 20);
+
+        // Hue input field
+        render_text(state, "Color:", layout.next, band_color);
+        input_pos = (V2){layout.next.x + 100, layout.next.y};
+
+        // Store old hue to detect changes
+        float old_hue = band->color.hue;
+        render_numeric_input_field_full(state, &band->color.hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
+
+        // Clamp hue to valid range if it changed
+        if (band->color.hue != old_hue) {
+            while (band->color.hue < 0) band->color.hue += 360.0f;
+            while (band->color.hue >= 360.0f) band->color.hue -= 360.0f;
+        }
+
+        input_pos = (V2){layout.next.x + 100 + input_size.x, layout.next.y};
+        // Store old lightness to detect changes
+        float old_lightness = band->color.lightness;
+        render_numeric_input_field_full(state, &band->color.lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+
+        // Clamp lightness to valid range if it changed
+        if (band->color.lightness != old_lightness) {
+            while (band->color.lightness < 0) band->color.lightness = 0.0f;
+            while (band->color.lightness > 1.0f) band->color.lightness = 1.0f;
+        }
+        input_pos = (V2){layout.next.x + 100 + input_size.x*2, layout.next.y};
+        // Store old chroma to detect changes
+        float old_chroma = band->color.chroma;
+        render_numeric_input_field_full(state, &band->color.chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+
+        // Clamp chroma to valid range if it changed
+        if (band->color.chroma != old_chroma) {
+            while (band->color.chroma < 0) band->color.chroma = 0.0f;
+            while (band->color.chroma > 1.0f) band->color.chroma = 1.0f;
+        }
+        advance_vertical(&layout, 25);
 
         // Add band kind toggle button (CLOSED/OPEN)
         const char* band_kind_name = (band->kind == BAND_OPEN) ? "><" : "<>";
@@ -1137,76 +1202,6 @@ void render_band_summaries(AppState* state) {
         }
 
         advance_vertical(&layout, 25);
-
-        // Band details
-        render_text(state, "Start:", layout.next, gray);
-        V2 input_pos = {layout.next.x + 100, layout.next.y};
-        V2 input_size = {80, 20};
-
-        // Add follow_previous toggle button next to start field
-        V2 follow_button_pos = {input_pos.x + input_size.x + 5, input_pos.y};
-        V2 follow_button_size = {25, 20};
-        const char* follow_text = band->follow_previous ? "^" : " ";
-        if (render_button(state, follow_text, follow_button_pos, follow_button_size, band->follow_previous)) {
-            band->follow_previous = !band->follow_previous;
-        }
-
-        // Render start field (disabled if follow_previous is true)
-        // Scale drag sensitivity based on sliver camera zoom - more zoom means finer control
-        float drag_scale = 0.005f / state->sliver_camera.scale;  // Inversely proportional to zoom
-        float old_start = band->interval.start;
-        render_numeric_input_field_full(state, &band->interval.start, input_pos, input_size, band->follow_previous, drag_scale);
-        // By default, move end to keep size fixed (unless Cmd is held for independent movement)
-        if (!(SDL_GetModState() & KMOD_GUI) && band->interval.start != old_start) {
-            band->interval.end += (band->interval.start - old_start);
-        }
-        advance_vertical(&layout, 20);
-
-        render_text(state, "  End:", layout.next, gray);
-        input_pos = (V2){layout.next.x + 100, layout.next.y};
-        render_numeric_input_field_full(state, &band->interval.end, input_pos, input_size, false, drag_scale);
-        advance_vertical(&layout, 20);
-
-        float size = band->interval.end - band->interval.start;
-        snprintf(buffer, sizeof(buffer), " Size: %.2f", size);
-        render_text(state, buffer, layout.next, gray);
-        advance_vertical(&layout, 20);
-
-        // Hue input field
-        render_text(state, "Color:", layout.next, gray);
-        input_pos = (V2){layout.next.x + 100, layout.next.y};
-
-        // Store old hue to detect changes
-        float old_hue = band->color.hue;
-        render_numeric_input_field_full(state, &band->color.hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
-
-        // Clamp hue to valid range if it changed
-        if (band->color.hue != old_hue) {
-            while (band->color.hue < 0) band->color.hue += 360.0f;
-            while (band->color.hue >= 360.0f) band->color.hue -= 360.0f;
-        }
-
-        input_pos = (V2){layout.next.x + 100 + input_size.x, layout.next.y};
-        // Store old lightness to detect changes
-        float old_lightness = band->color.lightness;
-        render_numeric_input_field_full(state, &band->color.lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
-
-        // Clamp lightness to valid range if it changed
-        if (band->color.lightness != old_lightness) {
-            while (band->color.lightness < 0) band->color.lightness = 0.0f;
-            while (band->color.lightness > 1.0f) band->color.lightness = 1.0f;
-        }
-        input_pos = (V2){layout.next.x + 100 + input_size.x*2, layout.next.y};
-        // Store old chroma to detect changes
-        float old_chroma = band->color.chroma;
-        render_numeric_input_field_full(state, &band->color.chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
-
-        // Clamp chroma to valid range if it changed
-        if (band->color.chroma != old_chroma) {
-            while (band->color.chroma < 0) band->color.chroma = 0.0f;
-            while (band->color.chroma > 1.0f) band->color.chroma = 1.0f;
-        }
-        advance_vertical(&layout, 20);
 
         advance_vertical(&layout, 10);  // Space between bands
     }
