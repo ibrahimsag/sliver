@@ -178,6 +178,7 @@ typedef struct {
     float drag_start_value;      // Value when drag started
     float drag_start_mouse_x;    // Mouse X position when drag started
     LabelPosition label_position;  // Position for band labels
+    int band_offset;  // Offset for band iteration in UI
     bool running;
 } AppState;
 
@@ -971,15 +972,12 @@ void render_band_summaries(AppState* state) {
     SDL_Color white = {255, 255, 255, 255};
     SDL_Color gray = {180, 180, 180, 255};
 
-    // Title
-    render_text(state, "Band Summary", layout.next, white);
-    advance_vertical(&layout, 30);
     layout.row_start = layout.next;  // Set row start for button row
 
     // Reset buttons for different presets - using horizontal layout
     V2 button_size = {80, 25};
     
-    if (render_button(state, "Random", layout.next, button_size, false)) {
+    if (render_button(state, "Clear", layout.next, button_size, false)) {
         init_bands_rand(state);
     }
     advance_horizontal(&layout, button_size.x + 10);
@@ -1032,12 +1030,28 @@ void render_band_summaries(AppState* state) {
     }
     advance_vertical(&layout, 35);
 
+    // Band list navigation buttons
+    V2 nav_button_size = {30, 22};
+    if (render_button(state, "Up", layout.next, nav_button_size, false)) {
+        if (state->band_offset > 0) {
+            state->band_offset--;
+        }
+    }
+    advance_horizontal(&layout, nav_button_size.x + 5);
+    
+    if (render_button(state, "Dn", layout.next, nav_button_size, false)) {
+        if (state->band_offset < (int)state->bands.length - 1) {
+            state->band_offset++;
+        }
+    }
+    advance_vertical(&layout, 25);
+
     // Render each band
     char buffer[256];
-    for (size_t i = 0; i < state->bands.length; i++) {
+    for (size_t i = state->band_offset; i < state->bands.length; i++) {
         Band* band = &state->bands.ptr[i];
 
-        // Band header with band number
+        // Band header with band number (show actual index)
         snprintf(buffer, sizeof(buffer), "    %zu:", i + 1);
         SDL_Color band_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
         render_text(state, buffer, layout.next, band_color);
@@ -2322,6 +2336,7 @@ int main(int argc, char* argv[]) {
     state.running = true;
     state.selected_corner = CORNER_BR;  // Start with bottom-right selected
     state.label_position = LABEL_BOTTOM_RIGHT;  // Start with bottom-right labels
+    state.band_offset = 0;  // Start at beginning of band list
     state.bounding_center = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center in viewport
     state.bounding_half = (BOUNDING_SIZE - BOUNDING_PADDING) / 2;
 
