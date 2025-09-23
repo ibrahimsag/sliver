@@ -1291,11 +1291,20 @@ void render_band_summaries(AppState* state) {
 
         advance_vertical(&layout, 25);
 
-        // Label position control - 3x3 anchor grid
+        // Label position control - 3x3 anchor grid with offset inputs
         int selected_pos = render_anchor_buttons(state, layout.next, 45, band->label_anchor);
         if (selected_pos >= 0) {
             band->label_anchor = selected_pos;
         }
+        
+        // Label offset inputs next to anchor grid
+        V2 offset_input_size = {60, 20};
+        V2 x_input_pos = {layout.next.x + 50, layout.next.y + 5};
+        V2 y_input_pos = {layout.next.x + 50, layout.next.y + 25};
+        
+        render_numeric_input_field_full(state, &band->label_offset.x, x_input_pos, offset_input_size, false, 0.5f);
+        render_numeric_input_field_full(state, &band->label_offset.y, y_input_pos, offset_input_size, false, 0.5f);
+        
         advance_vertical(&layout, 50);
 
         advance_vertical(&layout, 10);  // Space between bands
