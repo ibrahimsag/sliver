@@ -73,8 +73,15 @@ typedef enum {
 } BandKind;
 
 typedef enum {
-    LABEL_TOP_LEFT = 0,     // Label at top-left of square
-    LABEL_BOTTOM_RIGHT = 1  // Label at bottom-right of square
+    LABEL_TOP_LEFT = 0,
+    LABEL_TOP_CENTER = 1,
+    LABEL_TOP_RIGHT = 2,
+    LABEL_MIDDLE_LEFT = 3,
+    LABEL_CENTER = 4,
+    LABEL_MIDDLE_RIGHT = 5,
+    LABEL_BOTTOM_LEFT = 6,
+    LABEL_BOTTOM_CENTER = 7,
+    LABEL_BOTTOM_RIGHT = 8
 } LabelPosition;
 
 typedef struct {
@@ -89,6 +96,7 @@ typedef struct {
     bool wave_inverted;  // Whether to use π phase offset for waves
     bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
     bool follow_previous;  // If true, start position automatically follows end of previous band
+    LabelPosition label_position;  // Position for label (9 positions in 3x3 grid)
 } Band;
 
 typedef struct {
@@ -709,6 +717,65 @@ void advance_vertical(Layout* layout, float height) {
     }
 }
 
+// Render 3x3 anchor buttons for label position selection
+// Returns the selected position (0-8) or -1 if no selection
+int render_anchor_buttons(AppState* state, V2 position, float size, LabelPosition current) {
+    float button_size = size / 3.0f;
+    int selected = -1;
+
+    for (int row = 0; row < 3; row++) {
+        for (int col = 0; col < 3; col++) {
+            int index = row * 3 + col;
+            V2 button_pos = {
+                position.x + col * button_size,
+                position.y + row * button_size
+            };
+
+            SDL_Rect rect = {
+                (int)button_pos.x,
+                (int)button_pos.y,
+                (int)button_size,
+                (int)button_size
+            };
+
+            // Check hover
+            bool hover = state->mouse_pos.x >= rect.x && state->mouse_pos.x < rect.x + rect.w &&
+                        state->mouse_pos.y >= rect.y && state->mouse_pos.y < rect.y + rect.h;
+
+            // Draw background
+            if (index == current) {
+                SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
+            } else if (hover) {
+                SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
+            } else {
+                SDL_SetRenderDrawColor(state->renderer, 45, 45, 50, 255);
+            }
+            SDL_RenderFillRect(state->renderer, &rect);
+
+            // Draw border
+            SDL_SetRenderDrawColor(state->renderer, 80, 80, 85, 255);
+            SDL_RenderDrawRect(state->renderer, &rect);
+
+            // Draw small indicator dot in center
+            SDL_Rect dot = {
+                (int)(button_pos.x + button_size/2 - 2),
+                (int)(button_pos.y + button_size/2 - 2),
+                4, 4
+            };
+            SDL_SetRenderDrawColor(state->renderer, 200, 200, 200, 255);
+            SDL_RenderFillRect(state->renderer, &dot);
+
+            // Check for click
+            if (hover && state->mouse_pressed && !state->mouse_was_pressed &&
+                state->dragging_input_field == NULL) {
+                selected = index;
+            }
+        }
+    }
+
+    return selected;
+}
+
 // Simple immediate mode button
 bool render_button(AppState* state, const char* text, V2 position, V2 size, bool active) {
     SDL_Rect button_rect = {
@@ -1026,16 +1093,9 @@ void render_band_summaries(AppState* state) {
         add_open_band(state);
     }
 
-    // Move to next row for label position toggle
+    // Move to next row
     advance_vertical(&layout, 30);
     layout.row_start = layout.next;
-
-    // Label position toggle button
-    const char* label_pos_text = (state->label_position == LABEL_TOP_LEFT) ? "Labels: TL" : "Labels: BR";
-    if (render_button(state, label_pos_text, layout.next, button_size, false)) {
-        state->label_position = (state->label_position == LABEL_TOP_LEFT) ? LABEL_BOTTOM_RIGHT : LABEL_TOP_LEFT;
-    }
-    advance_vertical(&layout, 35);
 
     // Band list navigation buttons
     V2 nav_button_size = {30, 22};
@@ -1229,6 +1289,13 @@ void render_band_summaries(AppState* state) {
         }
 
         advance_vertical(&layout, 25);
+
+        // Label position control - 3x3 anchor grid
+        int selected_pos = render_anchor_buttons(state, layout.next, 45, band->label_position);
+        if (selected_pos >= 0) {
+            band->label_position = selected_pos;
+        }
+        advance_vertical(&layout, 50);
 
         advance_vertical(&layout, 10);  // Space between bands
     }
@@ -1611,13 +1678,43 @@ void render(AppState* state) {
         float max_x = fmaxf(p1.x, p2.x);
         float max_y = fmaxf(p1.y, p2.y);
 
-        // Position label based on preference
-        V2 label_pos;
-        if (state->label_position == LABEL_TOP_LEFT) {
-            label_pos = world_to_screen((V2){min_x +10, min_y + 10}, &state->camera);
-        } else {  // LABEL_BOTTOM_RIGHT
-            label_pos = world_to_screen((V2){max_x + 4, max_y + 3}, &state->camera);
+        // Position label based on band's label position
+        float padding = 3.0f;
+        float center_x = (min_x + max_x) / 2.0f;
+        float center_y = (min_y + max_y) / 2.0f;
+
+        V2 world_pos;
+        switch (sq->label_position) {
+            case LABEL_TOP_LEFT:
+                world_pos = (V2){min_x - padding, min_y - padding};
+                break;
+            case LABEL_TOP_CENTER:
+                world_pos = (V2){center_x, min_y - padding};
+                break;
+            case LABEL_TOP_RIGHT:
+                world_pos = (V2){max_x + padding, min_y - padding};
+                break;
+            case LABEL_MIDDLE_LEFT:
+                world_pos = (V2){min_x - padding, center_y};
+                break;
+            case LABEL_CENTER:
+                world_pos = (V2){center_x, center_y};
+                break;
+            case LABEL_MIDDLE_RIGHT:
+                world_pos = (V2){max_x + padding, center_y};
+                break;
+            case LABEL_BOTTOM_LEFT:
+                world_pos = (V2){min_x - padding, max_y + padding};
+                break;
+            case LABEL_BOTTOM_CENTER:
+                world_pos = (V2){center_x, max_y + padding};
+                break;
+            case LABEL_BOTTOM_RIGHT:
+            default:
+                world_pos = (V2){max_x + padding, max_y + padding};
+                break;
         }
+        V2 label_pos = world_to_screen(world_pos, &state->camera);
 
         SDL_Color label_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
         render_text(state, sq->label, label_pos, label_color);
@@ -1836,6 +1933,7 @@ void add_random_band(AppState* state) {
         .label = label_buffer_allocate(&state->label_buffer),  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
+        .label_position = LABEL_BOTTOM_RIGHT,  // Default label position
         .wave_half_period = false,
         .follow_previous = false
     };
@@ -1863,7 +1961,8 @@ void add_open_band(AppState* state) {
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
-        .follow_previous = false
+        .follow_previous = false,
+        .label_position = LABEL_BOTTOM_RIGHT  // Default label position
     };
 
     band_array_add(&state->bands, new_band);
