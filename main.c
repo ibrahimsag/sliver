@@ -82,7 +82,7 @@ typedef enum {
     LABEL_BOTTOM_LEFT = 6,
     LABEL_BOTTOM_CENTER = 7,
     LABEL_BOTTOM_RIGHT = 8
-} LabelPosition;
+} LabelAnchor;
 
 typedef struct {
     Interval interval;  // Base interval (start and end positions)
@@ -96,7 +96,8 @@ typedef struct {
     bool wave_inverted;  // Whether to use π phase offset for waves
     bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
     bool follow_previous;  // If true, start position automatically follows end of previous band
-    LabelPosition label_position;  // Position for label (9 positions in 3x3 grid)
+    LabelAnchor label_anchor;  // Anchor position for label (9 positions in 3x3 grid)
+    V2 label_offset;  // Additional offset from anchor position
 } Band;
 
 typedef struct {
@@ -186,7 +187,7 @@ typedef struct {
     void* dragging_input_field;  // Pointer to the float being dragged
     float drag_start_value;      // Value when drag started
     float drag_start_mouse_x;    // Mouse X position when drag started
-    LabelPosition label_position;  // Position for band labels
+    LabelAnchor label_anchor;  // Default anchor for band labels
     int band_offset;  // Offset for band iteration in UI
     bool running;
 } AppState;
@@ -719,7 +720,7 @@ void advance_vertical(Layout* layout, float height) {
 
 // Render 3x3 anchor buttons for label position selection
 // Returns the selected position (0-8) or -1 if no selection
-int render_anchor_buttons(AppState* state, V2 position, float size, LabelPosition current) {
+int render_anchor_buttons(AppState* state, V2 position, float size, LabelAnchor current) {
     float button_size = size / 3.0f;
     int selected = -1;
 
@@ -1291,9 +1292,9 @@ void render_band_summaries(AppState* state) {
         advance_vertical(&layout, 25);
 
         // Label position control - 3x3 anchor grid
-        int selected_pos = render_anchor_buttons(state, layout.next, 45, band->label_position);
+        int selected_pos = render_anchor_buttons(state, layout.next, 45, band->label_anchor);
         if (selected_pos >= 0) {
-            band->label_position = selected_pos;
+            band->label_anchor = selected_pos;
         }
         advance_vertical(&layout, 50);
 
@@ -1678,13 +1679,13 @@ void render(AppState* state) {
         float max_x = fmaxf(p1.x, p2.x);
         float max_y = fmaxf(p1.y, p2.y);
 
-        // Position label based on band's label position
+        // Position label based on band's label anchor
         float padding = 3.0f;
         float center_x = (min_x + max_x) / 2.0f;
         float center_y = (min_y + max_y) / 2.0f;
 
         V2 world_pos;
-        switch (sq->label_position) {
+        switch (sq->label_anchor) {
             case LABEL_TOP_LEFT:
                 world_pos = (V2){min_x - padding, min_y - padding};
                 break;
@@ -1714,6 +1715,9 @@ void render(AppState* state) {
                 world_pos = (V2){max_x + padding, max_y + padding};
                 break;
         }
+        
+        // Apply label offset
+        world_pos = v2_add(world_pos, sq->label_offset);
         V2 label_pos = world_to_screen(world_pos, &state->camera);
 
         SDL_Color label_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
@@ -1933,7 +1937,8 @@ void add_random_band(AppState* state) {
         .label = label_buffer_allocate(&state->label_buffer),  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
-        .label_position = LABEL_BOTTOM_RIGHT,  // Default label position
+        .label_anchor = LABEL_BOTTOM_RIGHT,  // Default label anchor
+        .label_offset = {0, 0},  // No offset
         .wave_half_period = false,
         .follow_previous = false
     };
@@ -1962,7 +1967,8 @@ void add_open_band(AppState* state) {
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false,
-        .label_position = LABEL_BOTTOM_RIGHT  // Default label position
+        .label_anchor = LABEL_BOTTOM_RIGHT,  // Default label anchor
+        .label_offset = {0, 0}  // No offset
     };
 
     band_array_add(&state->bands, new_band);
@@ -2574,7 +2580,7 @@ int main(int argc, char* argv[]) {
     AppState state = {0};
     state.running = true;
     state.selected_corner = CORNER_BR;  // Start with bottom-right selected
-    state.label_position = LABEL_BOTTOM_RIGHT;  // Start with bottom-right labels
+    state.label_anchor = LABEL_BOTTOM_RIGHT;  // Start with bottom-right labels
     state.band_offset = 0;  // Start at beginning of band list
     state.bounding_center = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center in viewport
     state.bounding_half = (BOUNDING_SIZE - BOUNDING_PADDING) / 2;
