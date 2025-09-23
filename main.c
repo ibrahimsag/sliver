@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <string.h>
 #include <stdarg.h>
+#include <time.h>
 #include "color.h"
 
 #define WINDOW_WIDTH 1920
@@ -2443,8 +2444,20 @@ void print_bands_as_code(AppState* state) {
     }
     string_append(sb, "// End of band array initialization\n");
     
-    // Print to console
-    printf("\n%s\n", sb->ptr);
+    // Write to timestamped file
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    char filename[256];
+    strftime(filename, sizeof(filename), "bands_%Y-%m-%d_%H-%M-%S.c", tm_info);
+    
+    FILE* file = fopen(filename, "w");
+    if (file) {
+        fprintf(file, "%s", sb->ptr);
+        fclose(file);
+        printf("Bands saved to %s\n", filename);
+    } else {
+        printf("Error: Could not create file %s\n", filename);
+    }
 }
 
 int main(int argc, char* argv[]) {
