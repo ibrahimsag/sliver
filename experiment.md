@@ -103,7 +103,8 @@ typedef struct {
 ### Mouse
 - Click corner to select diagonal orientation
 - Click UI elements for band management
-- Shift+drag on numeric fields to adjust values
+- Drag on numeric fields to adjust values (no shift needed)
+- Click on numeric fields to enter text input mode
 
 ### Keyboard
 - **Arrow Keys**: Navigate sliver space (Left/Right: zoom, Up/Down: pan)
@@ -154,6 +155,9 @@ The sliver camera controls how squares are positioned along the diagonal:
 - Per-band controls for switching drawing styles
 - Wave-specific controls (wavelength scale, phase, period) appear contextually
 - Visual feedback with color-coded borders for different states
+- Band start/end movement behavior:
+  - Default: Moving start also moves end (preserving band size)
+  - Hold Cmd: Move start/end independently
 
 ## Color System
 
@@ -169,10 +173,9 @@ The sliver camera controls how squares are positioned along the diagonal:
 ### Input Fields
 Numeric input fields with multiple interaction modes:
 - **Text Input**: Click to activate field, type values directly
-- **Mouse Dragging**: Shift+drag horizontally to adjust values
-  - Normal drag: 0.01 per pixel
-  - Ctrl+Shift+drag: 0.001 per pixel (fine control)
-  - Alt+Shift+drag: 0.1 per pixel (coarse control)
+- **Mouse Dragging**: Drag horizontally to adjust values (no shift needed)
+  - Drag sensitivity: 0.005 per pixel
+  - 3-pixel movement threshold distinguishes click from drag
 - **Keyboard Controls**: Arrow keys for increment/decrement when field is active
   - Up/Down: ±0.1 (±1.0 with Shift, ±0.01 with Ctrl)
 - **Dynamic Sensitivity**: Drag sensitivity for start/end fields scales with sliver camera zoom
@@ -200,11 +203,15 @@ Numeric input fields with multiple interaction modes:
   - When enabled, start field is disabled and band automatically positions itself
   - If following causes start ≥ end, band automatically becomes BAND_OPEN
 - **Band Management UI**:
-  - Multiple preset configurations (Weekly, TZ, Random) accessible via buttons
+  - Multiple preset configurations (Weekly, TZ, Backend, Backend2, Random) accessible via buttons
   - Split button (S) divides band at midpoint into two halves
   - Copy button (C) duplicates band with same size, positioned after original
   - Remove button (X) to delete individual bands
   - Add button (+ Band) creates new band with random OKLCH color
+  - Add button (+ Open) creates new open band (start=end) at sliver camera center
+  - Print button exports current bands to timestamped file (e.g., `bands_2025-01-23_14-30-25.c`)
+  - Up/Dn navigation buttons to scroll through band list when there are many bands
+  - Labels: TL/BR button toggles label position between top-left and bottom-right of squares
 - Per-frame band flattening for immediate updates
 
 ## Rendering System

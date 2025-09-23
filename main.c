@@ -315,12 +315,12 @@ void string_builder_clear(StringBuilder* sb) {
 
 void string_append(StringBuilder* sb, const char* format, ...) {
     if (!sb->ptr || sb->len >= sb->capacity - 1) return;
-    
+
     va_list args;
     va_start(args, format);
     int written = vsnprintf(sb->ptr + sb->len, sb->capacity - sb->len, format, args);
     va_end(args);
-    
+
     if (written > 0) {
         sb->len += written;
     }
@@ -978,7 +978,7 @@ void render_band_summaries(AppState* state) {
 
     // Reset buttons for different presets - using horizontal layout
     V2 button_size = {80, 25};
-    
+
     if (render_button(state, "Clear", layout.next, button_size, false)) {
         init_bands_rand(state);
     }
@@ -1007,7 +1007,7 @@ void render_band_summaries(AppState* state) {
     if (render_button(state, "Backend3", layout.next, button_size, false)) {
         init_bands_backend3(state);
     }
-    
+
     // Move to next row for Print button
     advance_vertical(&layout, 30);
     V2 print_button_pos = {layout.next.x, layout.next.y};
@@ -1021,15 +1021,15 @@ void render_band_summaries(AppState* state) {
         add_random_band(state);
     }
     advance_horizontal(&layout, button_size.x + 10);
-    
+
     if (render_button(state, "+ Open", layout.next, button_size, false)) {
         add_open_band(state);
     }
-    
+
     // Move to next row for label position toggle
     advance_vertical(&layout, 30);
     layout.row_start = layout.next;
-    
+
     // Label position toggle button
     const char* label_pos_text = (state->label_position == LABEL_TOP_LEFT) ? "Labels: TL" : "Labels: BR";
     if (render_button(state, label_pos_text, layout.next, button_size, false)) {
@@ -1045,7 +1045,7 @@ void render_band_summaries(AppState* state) {
         }
     }
     advance_horizontal(&layout, nav_button_size.x + 5);
-    
+
     if (render_button(state, "Dn", layout.next, nav_button_size, false)) {
         if (state->band_offset < (int)state->bands.length - 1) {
             state->band_offset++;
@@ -1846,12 +1846,12 @@ void add_random_band(AppState* state) {
 void add_open_band(AppState* state) {
     // Calculate center of sliver camera view
     float center = state->sliver_camera.offset + 0.5f / state->sliver_camera.scale;
-    
+
     // Random hue for variety, fixed lightness for consistency
     float random_hue = (rand() % 360);
     float lightness = 0.7f;  // 70% lightness
     float chroma = 0.15f + (rand() % 100) / 500.0f;  // 0.15 to 0.35 chroma
-    
+
     Band new_band = {
         .interval = {.start = center, .end = center},  // Start = end triggers BAND_OPEN
         .stride = 1.0f,
@@ -1865,7 +1865,7 @@ void add_open_band(AppState* state) {
         .wave_half_period = false,
         .follow_previous = false
     };
-    
+
     band_array_add(&state->bands, new_band);
 }
 
@@ -2408,17 +2408,17 @@ void init_bands_rand(AppState* state) {
 void print_bands_as_code(AppState* state) {
     StringBuilder* sb = &state->string_builder;
     string_builder_clear(sb);
-    
+
     string_append(sb, "// Band array initialization code:\n");
 
     for (size_t i = 0; i < state->bands.length; i++) {
         Band* band = &state->bands.ptr[i];
         string_append(sb, "band_array_add(&state->bands, (Band){\n");
-        string_append(sb, "    .interval = {.start = %.2ff, .end = %.2ff},\n", 
+        string_append(sb, "    .interval = {.start = %.2ff, .end = %.2ff},\n",
                      band->interval.start, band->interval.end);
         string_append(sb, "    .stride = %.2ff,\n", band->stride);
         string_append(sb, "    .repeat = %d,\n", band->repeat);
-        string_append(sb, "    .kind = %s,\n", 
+        string_append(sb, "    .kind = %s,\n",
                      band->kind == BAND_OPEN ? "BAND_OPEN" : "BAND_CLOSED");
         string_append(sb, "    .line_kind = %s,\n",
                      band->line_kind == KIND_SHARP ? "KIND_SHARP" :
@@ -2426,16 +2426,16 @@ void print_bands_as_code(AppState* state) {
                      band->line_kind == KIND_DOUBLE ? "KIND_DOUBLE" : "KIND_WAVE");
         string_append(sb, "    .color = {.lightness = %.2ff, .chroma = %.2ff, .hue = %.1ff},\n",
                      band->color.lightness, band->color.chroma, band->color.hue);
-        
+
         // Handle label - if it's empty or default, use label_buffer_allocate, otherwise use the string
-        if (band->label && strlen(band->label) > 0 && 
+        if (band->label && strlen(band->label) > 0 &&
             !(strlen(band->label) == 1 && band->label[0] >= 'A' && band->label[0] <= 'Z')) {
-            string_append(sb, "    .label = label_buffer_allocate_string(&state->label_buffer, \"%s\"),\n", 
+            string_append(sb, "    .label = label_buffer_allocate_string(&state->label_buffer, \"%s\"),\n",
                          band->label);
         } else {
             string_append(sb, "    .label = label_buffer_allocate(&state->label_buffer),\n");
         }
-        
+
         string_append(sb, "    .wavelength_scale = %d,\n", band->wavelength_scale);
         string_append(sb, "    .wave_inverted = %s,\n", band->wave_inverted ? "true" : "false");
         string_append(sb, "    .wave_half_period = %s,\n", band->wave_half_period ? "true" : "false");
@@ -2443,13 +2443,13 @@ void print_bands_as_code(AppState* state) {
         string_append(sb, "});\n\n");
     }
     string_append(sb, "// End of band array initialization\n");
-    
+
     // Write to timestamped file
     time_t now = time(NULL);
     struct tm *tm_info = localtime(&now);
     char filename[256];
     strftime(filename, sizeof(filename), "bands_%Y-%m-%d_%H-%M-%S.c", tm_info);
-    
+
     FILE* file = fopen(filename, "w");
     if (file) {
         fprintf(file, "%s", sb->ptr);
