@@ -298,7 +298,6 @@ float ease_out_bounce(float t) {
 // Forward declarations
 void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius);
 void draw_circle(SDL_Renderer* renderer, V2 center, float radius);
-void render_band_summaries(AppState* state);
 void flatten_bands(BandArray* source, BandArray* dest);
 void init_bands_week(AppState* state);
 void init_bands_tz(AppState* state);
@@ -711,8 +710,23 @@ void render_ui_panel(AppState* state) {
     SDL_SetRenderDrawColor(state->renderer, 60, 60, 65, 255);
     SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT);
 
-    // Render band summaries
-    render_band_summaries(state);
+    Layout layout = {
+        .next = {VIEWPORT_WIDTH + 20, 20},
+        .row_start = {VIEWPORT_WIDTH + 20, 20},
+        .max = {WINDOW_WIDTH - 20, WINDOW_HEIGHT - 40}
+    };
+
+    // Layer 1: Work management
+    layout = draw_work_ui(state, layout);
+    layout.row_start = layout.next;
+
+    // Visual separator
+    SDL_SetRenderDrawColor(state->renderer, 80, 80, 85, 255);
+    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH + 10, layout.next.y, WINDOW_WIDTH - 10, layout.next.y);
+    advance_vertical(&layout, 15);
+
+    // Layer 2: Lens (band viewing/editing)
+    layout = draw_lens(state, layout);
 }
 
 void render_text(AppState* state, const char* text, V2 position, SDL_Color color) {
@@ -1066,21 +1080,11 @@ void render_text_input_field(AppState* state, char* text, size_t max_len, V2 pos
     }
 }
 
-void render_band_summaries(AppState* state) {
-    Layout layout = {
-        .next = {VIEWPORT_WIDTH + 20, 20},
-        .row_start = {VIEWPORT_WIDTH + 20, 20},
-        .max = {WINDOW_WIDTH - 20, WINDOW_HEIGHT - 40}
-    };
-
-    SDL_Color white = {255, 255, 255, 255};
-    SDL_Color gray = {180, 180, 180, 255};
-
-    layout.row_start = layout.next;  // Set row start for button row
-
-    // Reset buttons for different presets - using horizontal layout
+// Draw Work UI layer - manages Work objects (load, store, init)
+Layout draw_work_ui(AppState* state, Layout layout) {
     V2 button_size = {80, 25};
 
+    // Work preset buttons
     if (render_button(state, "Clear", layout.next, button_size, false)) {
         init_bands_rand(state);
     }
@@ -1110,15 +1114,31 @@ void render_band_summaries(AppState* state) {
         init_bands_backend3(state);
     }
 
-    // Move to next row for Print button
+    // Move to next row
     advance_vertical(&layout, 30);
-    V2 print_button_pos = {layout.next.x, layout.next.y};
-    V2 print_button_size = {80, 25};
-    if (render_button(state, "Print", print_button_pos, print_button_size, false)) {
+
+    // Export and I/O buttons
+    if (render_button(state, "Print", layout.next, button_size, false)) {
         print_bands_as_code(state);
     }
     advance_horizontal(&layout, button_size.x + 10);
 
+    // Placeholder for future Load button
+    // render_button(state, "Load", layout.next, button_size, false);
+    // advance_horizontal(&layout, button_size.x + 10);
+
+    // Placeholder for future Store button
+    // render_button(state, "Store", layout.next, button_size, false);
+
+    advance_vertical(&layout, 30);
+
+    return layout;
+}
+// Draw Lens layer - views and edits bands within current Work
+Layout draw_lens(AppState* state, Layout layout) {
+    V2 button_size = {80, 25};
+
+    // Add band buttons
     if (render_button(state, "+ Band", layout.next, button_size, false)) {
         add_random_band(state);
     }
@@ -1274,7 +1294,7 @@ void render_band_summaries(AppState* state) {
         }
 
         V2 button_pos = {layout.next.x + 45, layout.next.y};
-        V2 button_size = {80, 22};
+        button_size = (V2){80, 22};
         if (render_button(state, kind_name, button_pos, button_size, false)) {
             // Cycle to next line_kind
             band->line_kind = (band->line_kind + 1) % KIND_COUNT;
@@ -1343,6 +1363,8 @@ void render_band_summaries(AppState* state) {
 
         advance_vertical(&layout, 10);  // Space between bands
     }
+
+    return layout;
 }
 
 // Draw a wavy line between two points
