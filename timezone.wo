@@ -12,7 +12,7 @@ WORK SLIVER 0001
   wave_inverted: false
   wave_half_period: false
   follow_previous: false
-  label_anchor: 0
+  label_anchor: 8
   label_offset: 0.000000 0.000000
 }
 {
@@ -28,7 +28,7 @@ WORK SLIVER 0001
   wave_inverted: false
   wave_half_period: false
   follow_previous: false
-  label_anchor: 0
+  label_anchor: 8
   label_offset: 0.000000 0.000000
 }
 {
@@ -44,7 +44,7 @@ WORK SLIVER 0001
   wave_inverted: true
   wave_half_period: false
   follow_previous: false
-  label_anchor: 0
+  label_anchor: 8
   label_offset: 0.000000 0.000000
 }
 {
@@ -60,6 +60,6 @@ WORK SLIVER 0001
   wave_inverted: false
   wave_half_period: false
   follow_previous: false
-  label_anchor: 0
+  label_anchor: 8
   label_offset: 0.000000 0.000000
 }
