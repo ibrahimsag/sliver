@@ -125,13 +125,17 @@ typedef struct {
     size_t capacity;  // Total allocated capacity
 } BandArray;
 
-typedef struct {
+typedef struct Work Work;
+
+struct Work {
     char* arena;           // Single arena allocation
     size_t arena_size;     // Total size of arena
     BandArray bands;       // Band definitions
     LabelArray labels;     // Label strings
     char filename[256];    // Last opened/saved filename
-} Work;
+    Work* prev;            // Previous work in linked list
+    Work* next;            // Next work in linked list
+};
 
 typedef struct {
     V2 start, end;
@@ -186,7 +190,7 @@ typedef struct {
     float bounding_half;
     Corner selected_corner;
     Diagonal diagonal;
-    Work work;            // Band and label data with arena allocation
+    Work* work;           // Current work (pointer into linked list)
     BandArray flattened;  // Flattened bands (temporary for rendering)
     StringBuilder string_builder;  // String builder for building strings
     Camera camera;  // For 2D viewport movement
@@ -373,24 +377,53 @@ void work_init(Work* work, size_t band_capacity, size_t label_capacity) {
 
     // Set up labels array
     work->labels.ptr = work->arena + bands_size;
-
-    // Initialize filename
-    work->filename[0] = '\0';
     work->labels.count = 0;
     work->labels.capacity = label_capacity;
+
+    // Initialize filename and list pointers
+    work->filename[0] = '\0';
+    work->prev = NULL;
+    work->next = NULL;
 }
 
-void work_free(Work* work) {
-    free(work->arena);
-    work->arena = NULL;
-    work->arena_size = 0;
-    work->bands.ptr = NULL;
-    work->bands.length = 0;
-    work->bands.capacity = 0;
-    work->labels.ptr = NULL;
-    work->labels.count = 0;
-    work->labels.capacity = 0;
+Work* work_new(size_t band_capacity, size_t label_capacity) {
+    Work* work = (Work*)malloc(sizeof(Work));
+    work_init(work, band_capacity, label_capacity);
+    return work;
 }
+
+void band_array_add(BandArray* arr, Band band);
+
+Work* work_copy(Work* source) {
+    Work* work = work_new(source->bands.capacity, source->labels.capacity);
+
+    for (size_t i = 0; i < source->bands.length; i++) {
+        Band* src_band = &source->bands.ptr[i];
+        Band new_band = *src_band;
+
+        if (src_band->label) {
+            new_band.label = label_array_allocate_string(&work->labels, src_band->label);
+        }
+
+        band_array_add(&work->bands, new_band);
+    }
+
+    strncpy(work->filename, source->filename, 255);
+    work->filename[255] = '\0';
+
+    return work;
+}
+
+void work_close(Work* work) {
+    if (!work) return;
+
+    if (work->prev) work->prev->next = work->next;
+    if (work->next) work->next->prev = work->prev;
+
+    free(work->arena);
+    free(work);
+}
+
 
 // Geometry buffer functions
 void geometry_buffer_init(GeometryBuffer* gb, size_t initial_vertex_capacity, size_t initial_index_capacity) {
@@ -1388,7 +1421,7 @@ void add_random_band(AppState* state) {
         .kind = BAND_CLOSED,  // Default to closed band
         .line_kind = KIND_WAVE,  // Default to wave
         .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
-        .label = label_array_allocate(&state->work.labels),  // Empty label
+        .label = label_array_allocate(&state->work->labels),  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .label_anchor = LABEL_BOTTOM_RIGHT,  // Default label anchor
@@ -1397,7 +1430,7 @@ void add_random_band(AppState* state) {
         .follow_previous = false
     };
 
-    band_array_add(&state->work.bands, new_band);
+    band_array_add(&state->work->bands, new_band);
 }
 
 void add_open_band(AppState* state) {
@@ -1416,7 +1449,7 @@ void add_open_band(AppState* state) {
         .kind = BAND_OPEN,  // Will be set automatically when start >= end
         .line_kind = KIND_WAVE,  // Default to wave
         .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
-        .label = label_array_allocate(&state->work.labels),  // Empty label
+        .label = label_array_allocate(&state->work->labels),  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1425,14 +1458,14 @@ void add_open_band(AppState* state) {
         .label_offset = {0, 0}  // No offset
     };
 
-    band_array_add(&state->work.bands, new_band);
+    band_array_add(&state->work->bands, new_band);
 }
 
 void init_bands_rand(AppState* state) {
     // Clear existing bands and reset label buffer
-    band_array_clear(&state->work.bands);
-    state->work.labels.count = 0;  // Reset label buffer to reclaim all slots
-    memset(state->work.labels.ptr, 0, state->work.labels.capacity * 32);  // Clear all label memory
+    band_array_clear(&state->work->bands);
+    state->work->labels.count = 0;  // Reset label buffer to reclaim all slots
+    memset(state->work->labels.ptr, 0, state->work->labels.capacity * 32);  // Clear all label memory
 
     // Add a single random band
     add_random_band(state);
@@ -1632,15 +1665,59 @@ bool work_load(Work* work, const char* filename) {
 Layout draw_work_ui(AppState* state, Layout layout) {
     V2 button_size = {80, 25};
 
+    // Work navigation and management buttons
+    V2 nav_button_size = {30, 25};
+    if (render_button(state, "<", layout.next, nav_button_size, false)) {
+        if (state->work->prev) {
+            state->work = state->work->prev;
+        }
+    }
+    advance_horizontal(&layout, nav_button_size.x + 5);
+
+    if (render_button(state, ">", layout.next, nav_button_size, false)) {
+        if (state->work->next) {
+            state->work = state->work->next;
+        }
+    }
+    advance_horizontal(&layout, nav_button_size.x + 10);
+
     // Work preset buttons
-    if (render_button(state, "Clear", layout.next, button_size, false)) {
-        init_bands_rand(state);
+    if (render_button(state, "New", layout.next, button_size, false)) {
+        Work* new_work = work_new(128, 128);
+        new_work->prev = state->work;
+        new_work->next = state->work->next;
+        if (state->work->next) state->work->next->prev = new_work;
+        state->work->next = new_work;
+        state->work = new_work;
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
+    if (render_button(state, "Copy", layout.next, button_size, false)) {
+        Work* copied = work_copy(state->work);
+        copied->prev = state->work;
+        copied->next = state->work->next;
+        if (state->work->next) state->work->next->prev = copied;
+        state->work->next = copied;
+        state->work = copied;
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
+    if (render_button(state, "Close", layout.next, button_size, false)) {
+        if (state->work->prev || state->work->next) {
+            Work* to_close = state->work;
+            if (state->work->next) {
+                state->work = state->work->next;
+            } else {
+                state->work = state->work->prev;
+            }
+            work_close(to_close);
+        }
     }
     advance_horizontal(&layout, button_size.x + 10);
 
     if (render_button(state, "Store", layout.next, button_size, false)) {
-        if (state->work.filename[0] != '\0') {
-            strncpy(state->ui_state.suggested_filename, state->work.filename, 255);
+        if (state->work->filename[0] != '\0') {
+            strncpy(state->ui_state.suggested_filename, state->work->filename, 255);
             state->ui_state.suggested_filename[255] = '\0';
         } else {
             time_t now = time(NULL);
@@ -1678,7 +1755,7 @@ Layout draw_shelf(AppState* state, Layout layout) {
 
         V2 save_button_size = {80, 25};
         if (render_button(state, "Save", layout.next, save_button_size, false)) {
-            work_save(&state->work, state->ui_state.suggested_filename);
+            work_save(state->work, state->ui_state.suggested_filename);
             state->ui_state.step = UI_LENS;
         }
         advance_horizontal(&layout, save_button_size.x + 10);
@@ -1698,7 +1775,16 @@ Layout draw_shelf(AppState* state, Layout layout) {
         } else {
             for (size_t i = 0; i < file_list.count; i++) {
                 if (render_button(state, file_list.files[i], layout.next, button_size, false)) {
-                    work_load(&state->work, file_list.files[i]);
+                    Work* loaded = work_new(128, 128);
+                    if (work_load(loaded, file_list.files[i])) {
+                        loaded->prev = state->work;
+                        loaded->next = state->work->next;
+                        if (state->work->next) state->work->next->prev = loaded;
+                        state->work->next = loaded;
+                        state->work = loaded;
+                    } else {
+                        work_close(loaded);
+                    }
                     state->ui_state.step = UI_LENS;
                     break;
                 }
@@ -1744,7 +1830,7 @@ Layout draw_lens(AppState* state, Layout layout) {
     advance_horizontal(&layout, nav_button_size.x + 5);
 
     if (render_button(state, "Dn", layout.next, nav_button_size, false)) {
-        if (state->band_offset < (int)state->work.bands.length - 1) {
+        if (state->band_offset < (int)state->work->bands.length - 1) {
             state->band_offset++;
         }
     }
@@ -1752,8 +1838,8 @@ Layout draw_lens(AppState* state, Layout layout) {
 
     // Render each band
     char buffer[256];
-    for (size_t i = state->band_offset; i < state->work.bands.length; i++) {
-        Band* band = &state->work.bands.ptr[i];
+    for (size_t i = state->band_offset; i < state->work->bands.length; i++) {
+        Band* band = &state->work->bands.ptr[i];
 
         // Band header with band number (show actual index)
         snprintf(buffer, sizeof(buffer), "    %zu:", i + 1);
@@ -1770,7 +1856,7 @@ Layout draw_lens(AppState* state, Layout layout) {
         V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
         V2 split_size = {25, 22};
         if (render_button(state, "S", split_pos, split_size, false)) {
-            band_array_split(&state->work.bands, i, &state->work.labels);
+            band_array_split(&state->work->bands, i, &state->work->labels);
             break;  // Exit loop since array has changed
         }
 
@@ -1778,7 +1864,7 @@ Layout draw_lens(AppState* state, Layout layout) {
         V2 copy_pos = {WINDOW_WIDTH - 50, layout.next.y + 25};
         V2 copy_size = {25, 22};
         if (render_button(state, "C", copy_pos, copy_size, false)) {
-            band_array_copy_after(&state->work.bands, i, &state->work.labels);
+            band_array_copy_after(&state->work->bands, i, &state->work->labels);
             break;  // Exit loop since array has changed
         }
 
@@ -1787,7 +1873,7 @@ Layout draw_lens(AppState* state, Layout layout) {
         V2 remove_size = {25, 22};
         SDL_Color red_tint = {200, 100, 100, 255};
         if (render_button(state, "X", remove_pos, remove_size, false)) {
-            band_array_remove(&state->work.bands, i);
+            band_array_remove(&state->work->bands, i);
             break;  // Exit loop since array has changed
         }
 
@@ -1984,7 +2070,7 @@ void render_ui_panel(AppState* state) {
 
 void render(AppState* state) {
     // Regenerate squares from bands every frame (immediate mode)
-    flatten_bands(&state->work.bands, &state->flattened);
+    flatten_bands(&state->work->bands, &state->flattened);
 
     // Clear screen
     SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
@@ -2286,7 +2372,7 @@ int main(int argc, char* argv[]) {
     state.sliver_camera.scale = 0.1f;   // Scale 1:1 shows full 0-1 in viewport, which maps to 0-10 in our coordinates
 
     // Initialize work (bands and labels in single arena)
-    work_init(&state.work, 128, 128);  // 128 bands, 128 labels
+    state.work = work_new(128, 128);  // 128 bands, 128 labels
 
     // Initialize flattened array separately (dynamic, not part of work)
     band_array_init(&state.flattened, 128*100);  // Large capacity for flattened bands
@@ -2623,8 +2709,14 @@ int main(int argc, char* argv[]) {
         SDL_Delay(16);  // ~60 FPS
     }
 
-    // Cleanup
-    work_free(&state.work);
+    // Cleanup - free all works in list
+    Work* work = state.work;
+    while (work && work->prev) work = work->prev;
+    while (work) {
+        Work* next = work->next;
+        work_close(work);
+        work = next;
+    }
     band_array_free(&state.flattened);
     render_context_free(&state.render_ctx);
     if (state.font) {
