@@ -352,110 +352,6 @@ void string_append(StringBuilder* sb, const char* format, ...) {
     }
 }
 
-// LabelArray functions
-
-char* label_array_allocate(LabelArray* lb) {
-    assert(lb->count < lb->capacity);  // Die if full
-    char* label = lb->ptr + (lb->count * 32);
-    // Default to a single letter from the alphabet, cycling A-Z
-    snprintf(label, 32, "%c", 'A' + (char)(lb->count % 26));
-    lb->count++;
-    return label;
-}
-
-char* label_array_allocate_string(LabelArray* lb, const char* str) {
-    char* label = label_array_allocate(lb);
-    if (str) {
-        strncpy(label, str, 31);
-        label[31] = '\0';
-    }
-    return label;
-}
-
-// Work functions
-void work_init(Work* work, size_t band_capacity, size_t label_capacity) {
-    // Calculate arena size
-    size_t bands_size = band_capacity * sizeof(Band);
-    size_t labels_size = label_capacity * 32;  // 32 bytes per label
-    work->arena_size = bands_size + labels_size;
-
-    // Allocate arena
-    work->arena = (char*)calloc(work->arena_size, 1);
-
-    // Set up bands array
-    work->bands.ptr = (Band*)work->arena;
-    work->bands.length = 0;
-    work->bands.capacity = band_capacity;
-
-    // Set up labels array
-    work->labels.ptr = work->arena + bands_size;
-    work->labels.count = 0;
-    work->labels.capacity = label_capacity;
-
-    // Initialize filename, hash, and list pointers
-    work->filename[0] = '\0';
-    work->saved_hash = 0;
-    work->prev = NULL;
-    work->next = NULL;
-}
-
-Work* work_new(size_t band_capacity, size_t label_capacity) {
-    Work* work = (Work*)malloc(sizeof(Work));
-    work_init(work, band_capacity, label_capacity);
-    return work;
-}
-
-void band_array_add(BandArray* arr, Band band);
-
-Work* work_copy(Work* source) {
-    Work* work = work_new(source->bands.capacity, source->labels.capacity);
-
-    for (size_t i = 0; i < source->bands.length; i++) {
-        Band* src_band = &source->bands.ptr[i];
-        Band new_band = *src_band;
-
-        if (src_band->label) {
-            new_band.label = label_array_allocate_string(&work->labels, src_band->label);
-        }
-
-        band_array_add(&work->bands, new_band);
-    }
-
-    strncpy(work->filename, source->filename, 255);
-    work->filename[255] = '\0';
-    work->saved_hash = source->saved_hash;
-
-    return work;
-}
-
-void work_close(Work* work) {
-    if (!work) return;
-
-    if (work->prev) work->prev->next = work->next;
-    if (work->next) work->next->prev = work->prev;
-
-    free(work->arena);
-    free(work);
-}
-
-uint32_t work_compute_hash(Work* work) {
-    uint32_t hash = 2166136261u;
-    const unsigned char* data = (const unsigned char*)work->arena;
-    for (size_t i = 0; i < work->arena_size; i++) {
-        hash ^= data[i];
-        hash *= 16777619u;
-    }
-    return hash;
-}
-
-bool work_is_modified(Work* work) {
-    return work_compute_hash(work) != work->saved_hash;
-}
-
-void work_update_hash(Work* work) {
-    work->saved_hash = work_compute_hash(work);
-}
-
 
 // Geometry buffer functions
 void geometry_buffer_init(GeometryBuffer* gb, size_t initial_vertex_capacity, size_t initial_index_capacity) {
@@ -1294,6 +1190,26 @@ void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, f
     }
 }
 
+// LabelArray functions
+
+char* label_array_allocate(LabelArray* lb) {
+    assert(lb->count < lb->capacity);  // Die if full
+    char* label = lb->ptr + (lb->count * 32);
+    // Default to a single letter from the alphabet, cycling A-Z
+    snprintf(label, 32, "%c", 'A' + (char)(lb->count % 26));
+    lb->count++;
+    return label;
+}
+
+char* label_array_allocate_string(LabelArray* lb, const char* str) {
+    char* label = label_array_allocate(lb);
+    if (str) {
+        strncpy(label, str, 31);
+        label[31] = '\0';
+    }
+    return label;
+}
+
 // BandArray management functions
 void band_array_init(BandArray* arr, size_t initial_capacity) {
     arr->ptr = (Band*)malloc(initial_capacity * sizeof(Band));
@@ -1538,6 +1454,88 @@ LineKind string_to_line_kind(const char* str) {
     if (strcmp(str, "DOUBLE") == 0) return KIND_DOUBLE;
     if (strcmp(str, "WAVE") == 0) return KIND_WAVE;
     return KIND_SHARP;
+}
+
+// Work functions
+void work_init(Work* work, size_t band_capacity, size_t label_capacity) {
+    // Calculate arena size
+    size_t bands_size = band_capacity * sizeof(Band);
+    size_t labels_size = label_capacity * 32;  // 32 bytes per label
+    work->arena_size = bands_size + labels_size;
+
+    // Allocate arena
+    work->arena = (char*)calloc(work->arena_size, 1);
+
+    // Set up bands array
+    work->bands.ptr = (Band*)work->arena;
+    work->bands.length = 0;
+    work->bands.capacity = band_capacity;
+
+    // Set up labels array
+    work->labels.ptr = work->arena + bands_size;
+    work->labels.count = 0;
+    work->labels.capacity = label_capacity;
+
+    // Initialize filename, hash, and list pointers
+    work->filename[0] = '\0';
+    work->saved_hash = 0;
+    work->prev = NULL;
+    work->next = NULL;
+}
+
+Work* work_new(size_t band_capacity, size_t label_capacity) {
+    Work* work = (Work*)malloc(sizeof(Work));
+    work_init(work, band_capacity, label_capacity);
+    return work;
+}
+
+Work* work_copy(Work* source) {
+    Work* work = work_new(source->bands.capacity, source->labels.capacity);
+
+    for (size_t i = 0; i < source->bands.length; i++) {
+        Band* src_band = &source->bands.ptr[i];
+        Band new_band = *src_band;
+
+        if (src_band->label) {
+            new_band.label = label_array_allocate_string(&work->labels, src_band->label);
+        }
+
+        band_array_add(&work->bands, new_band);
+    }
+
+    strncpy(work->filename, source->filename, 255);
+    work->filename[255] = '\0';
+    work->saved_hash = source->saved_hash;
+
+    return work;
+}
+
+void work_close(Work* work) {
+    if (!work) return;
+
+    if (work->prev) work->prev->next = work->next;
+    if (work->next) work->next->prev = work->prev;
+
+    free(work->arena);
+    free(work);
+}
+
+uint32_t work_compute_hash(Work* work) {
+    uint32_t hash = 2166136261u;
+    const unsigned char* data = (const unsigned char*)work->arena;
+    for (size_t i = 0; i < work->arena_size; i++) {
+        hash ^= data[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+bool work_is_modified(Work* work) {
+    return work_compute_hash(work) != work->saved_hash;
+}
+
+void work_update_hash(Work* work) {
+    work->saved_hash = work_compute_hash(work);
 }
 
 typedef struct {
