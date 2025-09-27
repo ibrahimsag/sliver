@@ -133,6 +133,7 @@ struct Work {
     BandArray bands;       // Band definitions
     LabelArray labels;     // Label strings
     char filename[256];    // Last opened/saved filename
+    uint32_t saved_hash;   // Hash of arena at last save/load
     Work* prev;            // Previous work in linked list
     Work* next;            // Next work in linked list
 };
@@ -380,8 +381,9 @@ void work_init(Work* work, size_t band_capacity, size_t label_capacity) {
     work->labels.count = 0;
     work->labels.capacity = label_capacity;
 
-    // Initialize filename and list pointers
+    // Initialize filename, hash, and list pointers
     work->filename[0] = '\0';
+    work->saved_hash = 0;
     work->prev = NULL;
     work->next = NULL;
 }
@@ -410,6 +412,7 @@ Work* work_copy(Work* source) {
 
     strncpy(work->filename, source->filename, 255);
     work->filename[255] = '\0';
+    work->saved_hash = source->saved_hash;
 
     return work;
 }
@@ -422,6 +425,24 @@ void work_close(Work* work) {
 
     free(work->arena);
     free(work);
+}
+
+uint32_t work_compute_hash(Work* work) {
+    uint32_t hash = 2166136261u;
+    const unsigned char* data = (const unsigned char*)work->arena;
+    for (size_t i = 0; i < work->arena_size; i++) {
+        hash ^= data[i];
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+bool work_is_modified(Work* work) {
+    return work_compute_hash(work) != work->saved_hash;
+}
+
+void work_update_hash(Work* work) {
+    work->saved_hash = work_compute_hash(work);
 }
 
 
@@ -1563,6 +1584,7 @@ void work_save(Work* work, const char* filename) {
     }
 
     fclose(file);
+    work_update_hash(work);
     printf("Work saved to %s\n", filename);
 }
 
@@ -1657,6 +1679,7 @@ bool work_load(Work* work, const char* filename) {
     }
 
     fclose(file);
+    work_update_hash(work);
     printf("Work loaded from %s (%zu bands)\n", filename, work->bands.length);
     return true;
 }
@@ -1664,6 +1687,13 @@ bool work_load(Work* work, const char* filename) {
 // Draw Work UI layer - manages Work objects (load, store, init)
 Layout draw_work_ui(AppState* state, Layout layout) {
     V2 button_size = {80, 25};
+
+    // Show modified indicator
+    if (work_is_modified(state->work)) {
+        SDL_Color modified_color = {255, 200, 100, 255};
+        render_text(state, "*", layout.next, modified_color);
+    }
+    advance_horizontal(&layout, 20);
 
     // Work navigation and management buttons
     V2 nav_button_size = {30, 25};
