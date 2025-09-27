@@ -26,6 +26,12 @@
 #define EDGE_BOTTOM (1 << 2)  // 0x04
 #define EDGE_LEFT   (1 << 3)  // 0x08
 
+// Helper to generate harmonious colors using OKLCH
+SDL_Color make_color_oklch(float L, float C, float h) {
+    ColorOKLCH oklch = {.L = L, .C = C, .h = h};
+    return color_oklch_to_sdl(oklch);
+}
+
 // Vector 2D struct and operations
 typedef struct {
     float x, y;
@@ -295,23 +301,6 @@ float ease_out_bounce(float t) {
     }
 }
 
-// Forward declarations
-void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius);
-void flatten_bands(BandArray* source, BandArray* dest);
-void init_bands_week(AppState* state);
-void init_bands_tz(AppState* state);
-void init_bands_rand(AppState* state);
-void init_bands_backend(AppState* state);
-void init_bands_backend2(AppState* state);
-void init_bands_backend3(AppState* state);
-void band_array_remove(BandArray* arr, size_t index);
-void band_array_copy_after(BandArray* arr, size_t index, LabelArray* lb);
-void band_array_split(BandArray* arr, size_t index, LabelArray* lb);
-void add_random_band(AppState* state);
-void add_open_band(AppState* state);
-void print_bands_as_code(AppState* state);
-SDL_Color make_color_oklch(float L, float C, float h);
-
 // StringBuilder functions
 void string_builder_init(StringBuilder* sb) {
     sb->capacity = 64 * 1024;  // 64KB buffer
@@ -566,41 +555,6 @@ void draw_line_cam(AppState* state, V2 p1, V2 p2) {
     draw_line(state->renderer, s1, s2);
 }
 
-void draw_square_cam(AppState* state, V2 p1, V2 p2, bool rounded, float animated_radius_factor) {
-    V2 s1 = world_to_screen(p1, &state->camera);
-    V2 s2 = world_to_screen(p2, &state->camera);
-
-    float min_x = fminf(s1.x, s2.x);
-    float max_x = fmaxf(s1.x, s2.x);
-    float min_y = fminf(s1.y, s2.y);
-    float max_y = fmaxf(s1.y, s2.y);
-
-    if (rounded) {
-        float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
-        float radius = base_radius * animated_radius_factor;
-        float extend = radius * (1.0f - 1.0f/sqrtf(2));
-        draw_rounded_rect(state->renderer, min_x - extend, min_y - extend,
-                         (max_x - min_x) + 2 * extend, (max_y - min_y) + 2 * extend, radius);
-    } else {
-        SDL_Rect rect = {(int)min_x, (int)min_y, (int)(max_x - min_x), (int)(max_y - min_y)};
-        SDL_RenderDrawRect(state->renderer, &rect);
-    }
-}
-
-void draw_circle_cam(AppState* state, V2 center, float radius) {
-    V2 s_center = world_to_screen(center, &state->camera);
-    float s_radius = radius * state->camera.scale;
-
-    const int segments = 32;
-    for (int i = 0; i < segments; i++) {
-        float angle1 = (2.0f * M_PI * i) / segments;
-        float angle2 = (2.0f * M_PI * (i + 1)) / segments;
-        draw_line(state->renderer,
-                 (V2){s_center.x + s_radius * cosf(angle1), s_center.y + s_radius * sinf(angle1)},
-                 (V2){s_center.x + s_radius * cosf(angle2), s_center.y + s_radius * sinf(angle2)});
-    }
-}
-
 void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius) {
     // Draw rounded rectangle using lines
     int segments = 32;
@@ -663,6 +617,41 @@ void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float 
     SDL_RenderDrawLine(renderer, x + radius, y + h, x + w - radius, y + h);  // Bottom
     SDL_RenderDrawLine(renderer, x, y + radius, x, y + h - radius);  // Left
     SDL_RenderDrawLine(renderer, x + w, y + radius, x + w, y + h - radius);  // Right
+}
+
+void draw_square_cam(AppState* state, V2 p1, V2 p2, bool rounded, float animated_radius_factor) {
+    V2 s1 = world_to_screen(p1, &state->camera);
+    V2 s2 = world_to_screen(p2, &state->camera);
+
+    float min_x = fminf(s1.x, s2.x);
+    float max_x = fmaxf(s1.x, s2.x);
+    float min_y = fminf(s1.y, s2.y);
+    float max_y = fmaxf(s1.y, s2.y);
+
+    if (rounded) {
+        float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
+        float radius = base_radius * animated_radius_factor;
+        float extend = radius * (1.0f - 1.0f/sqrtf(2));
+        draw_rounded_rect(state->renderer, min_x - extend, min_y - extend,
+                         (max_x - min_x) + 2 * extend, (max_y - min_y) + 2 * extend, radius);
+    } else {
+        SDL_Rect rect = {(int)min_x, (int)min_y, (int)(max_x - min_x), (int)(max_y - min_y)};
+        SDL_RenderDrawRect(state->renderer, &rect);
+    }
+}
+
+void draw_circle_cam(AppState* state, V2 center, float radius) {
+    V2 s_center = world_to_screen(center, &state->camera);
+    float s_radius = radius * state->camera.scale;
+
+    const int segments = 32;
+    for (int i = 0; i < segments; i++) {
+        float angle1 = (2.0f * M_PI * i) / segments;
+        float angle2 = (2.0f * M_PI * (i + 1)) / segments;
+        draw_line(state->renderer,
+                 (V2){s_center.x + s_radius * cosf(angle1), s_center.y + s_radius * sinf(angle1)},
+                 (V2){s_center.x + s_radius * cosf(angle2), s_center.y + s_radius * sinf(angle2)});
+    }
 }
 
 void draw_square(SDL_Renderer* renderer, V2 p1, V2 p2, bool rounded, float animated_radius_factor) {
@@ -1224,594 +1213,6 @@ void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, f
     }
 }
 
-// Draw Work UI layer - manages Work objects (load, store, init)
-Layout draw_work_ui(AppState* state, Layout layout) {
-    V2 button_size = {80, 25};
-
-    // Work preset buttons
-    if (render_button(state, "Clear", layout.next, button_size, false)) {
-        init_bands_rand(state);
-    }
-    advance_horizontal(&layout, button_size.x + 10);
-
-    if (render_button(state, "Weekly", layout.next, button_size, false)) {
-        init_bands_week(state);
-    }
-    advance_horizontal(&layout, button_size.x + 10);
-
-    if (render_button(state, "TZ", layout.next, button_size, false)) {
-        init_bands_tz(state);
-    }
-    advance_horizontal(&layout, button_size.x + 10);
-
-    if (render_button(state, "Backend", layout.next, button_size, false)) {
-        init_bands_backend(state);
-    }
-    advance_horizontal(&layout, button_size.x + 10);
-
-    if (render_button(state, "Backend2", layout.next, button_size, false)) {
-        init_bands_backend2(state);
-    }
-    advance_horizontal(&layout, button_size.x + 10);
-
-    if (render_button(state, "Backend3", layout.next, button_size, false)) {
-        init_bands_backend3(state);
-    }
-
-    // Move to next row
-    advance_vertical(&layout, 30);
-
-    // Export and I/O buttons
-    if (render_button(state, "Print", layout.next, button_size, false)) {
-        print_bands_as_code(state);
-    }
-    advance_horizontal(&layout, button_size.x + 10);
-
-    // Placeholder for future Load button
-    // render_button(state, "Load", layout.next, button_size, false);
-    // advance_horizontal(&layout, button_size.x + 10);
-
-    // Placeholder for future Store button
-    // render_button(state, "Store", layout.next, button_size, false);
-
-    advance_vertical(&layout, 30);
-
-    return layout;
-}
-
-// Draw Lens layer - views and edits bands within current Work
-Layout draw_lens(AppState* state, Layout layout) {
-    V2 button_size = {80, 25};
-
-    // Add band buttons
-    if (render_button(state, "+ Band", layout.next, button_size, false)) {
-        add_random_band(state);
-    }
-    advance_horizontal(&layout, button_size.x + 10);
-
-    if (render_button(state, "+ Open", layout.next, button_size, false)) {
-        add_open_band(state);
-    }
-
-    // Move to next row
-    advance_vertical(&layout, 30);
-    layout.row_start = layout.next;
-
-    // Band list navigation buttons
-    V2 nav_button_size = {30, 22};
-    if (render_button(state, "Up", layout.next, nav_button_size, false)) {
-        if (state->band_offset > 0) {
-            state->band_offset--;
-        }
-    }
-    advance_horizontal(&layout, nav_button_size.x + 5);
-
-    if (render_button(state, "Dn", layout.next, nav_button_size, false)) {
-        if (state->band_offset < (int)state->work.bands.length - 1) {
-            state->band_offset++;
-        }
-    }
-    advance_vertical(&layout, 25);
-
-    // Render each band
-    char buffer[256];
-    for (size_t i = state->band_offset; i < state->work.bands.length; i++) {
-        Band* band = &state->work.bands.ptr[i];
-
-        // Band header with band number (show actual index)
-        snprintf(buffer, sizeof(buffer), "    %zu:", i + 1);
-        SDL_Color band_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
-        render_text(state, buffer, layout.next, band_color);
-
-        // Label input field next to band number
-        V2 label_pos = {layout.next.x + 100, layout.next.y};
-        V2 label_size = {120, 20};
-        render_text_input_field(state, band->label, 32, label_pos, label_size);
-        advance_vertical(&layout, 25);
-
-        // Add split button (S) near the right side
-        V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
-        V2 split_size = {25, 22};
-        if (render_button(state, "S", split_pos, split_size, false)) {
-            band_array_split(&state->work.bands, i, &state->work.labels);
-            break;  // Exit loop since array has changed
-        }
-
-        // Add copy button (C) near the right side
-        V2 copy_pos = {WINDOW_WIDTH - 50, layout.next.y + 25};
-        V2 copy_size = {25, 22};
-        if (render_button(state, "C", copy_pos, copy_size, false)) {
-            band_array_copy_after(&state->work.bands, i, &state->work.labels);
-            break;  // Exit loop since array has changed
-        }
-
-        // Add remove button (X) at the right side
-        V2 remove_pos = {WINDOW_WIDTH - 50, layout.next.y};
-        V2 remove_size = {25, 22};
-        SDL_Color red_tint = {200, 100, 100, 255};
-        if (render_button(state, "X", remove_pos, remove_size, false)) {
-            band_array_remove(&state->work.bands, i);
-            break;  // Exit loop since array has changed
-        }
-
-        // Band details
-        render_text(state, "Start:", layout.next, band_color);
-        V2 input_pos = {layout.next.x + 100, layout.next.y};
-        V2 input_size = {80, 20};
-
-        // Add follow_previous toggle button next to start field
-        V2 follow_button_pos = {input_pos.x + input_size.x + 5, input_pos.y};
-        V2 follow_button_size = {25, 20};
-        const char* follow_text = band->follow_previous ? "^" : " ";
-        if (render_button(state, follow_text, follow_button_pos, follow_button_size, band->follow_previous)) {
-            band->follow_previous = !band->follow_previous;
-        }
-
-        // Render start field (disabled if follow_previous is true)
-        // Scale drag sensitivity based on sliver camera zoom - more zoom means finer control
-        float drag_scale = 0.005f / state->sliver_camera.scale;  // Inversely proportional to zoom
-        float old_start = band->interval.start;
-        render_numeric_input_field_full(state, &band->interval.start, input_pos, input_size, band->follow_previous, drag_scale);
-        // By default, move end to keep size fixed (unless Cmd is held for independent movement)
-        if (!(SDL_GetModState() & KMOD_GUI) && band->interval.start != old_start) {
-            band->interval.end += (band->interval.start - old_start);
-        }
-        advance_vertical(&layout, 20);
-
-        render_text(state, "  End:", layout.next, band_color);
-        input_pos = (V2){layout.next.x + 100, layout.next.y};
-        render_numeric_input_field_full(state, &band->interval.end, input_pos, input_size, false, drag_scale);
-        advance_vertical(&layout, 20);
-
-        // Hue input field
-        render_text(state, "Color:", layout.next, band_color);
-        input_pos = (V2){layout.next.x + 100, layout.next.y};
-
-        // Store old hue to detect changes
-        float old_hue = band->color.hue;
-        render_numeric_input_field_full(state, &band->color.hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
-
-        // Clamp hue to valid range if it changed
-        if (band->color.hue != old_hue) {
-            while (band->color.hue < 0) band->color.hue += 360.0f;
-            while (band->color.hue >= 360.0f) band->color.hue -= 360.0f;
-        }
-
-        input_pos = (V2){layout.next.x + 100 + input_size.x, layout.next.y};
-        // Store old lightness to detect changes
-        float old_lightness = band->color.lightness;
-        render_numeric_input_field_full(state, &band->color.lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
-
-        // Clamp lightness to valid range if it changed
-        if (band->color.lightness != old_lightness) {
-            while (band->color.lightness < 0) band->color.lightness = 0.0f;
-            while (band->color.lightness > 1.0f) band->color.lightness = 1.0f;
-        }
-        input_pos = (V2){layout.next.x + 100 + input_size.x*2, layout.next.y};
-        // Store old chroma to detect changes
-        float old_chroma = band->color.chroma;
-        render_numeric_input_field_full(state, &band->color.chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
-
-        // Clamp chroma to valid range if it changed
-        if (band->color.chroma != old_chroma) {
-            while (band->color.chroma < 0) band->color.chroma = 0.0f;
-            while (band->color.chroma > 1.0f) band->color.chroma = 1.0f;
-        }
-        advance_vertical(&layout, 25);
-
-        // Add band kind toggle button (CLOSED/OPEN)
-        const char* band_kind_name = (band->kind == BAND_OPEN) ? "><" : "<>";
-        V2 band_kind_pos = {layout.next.x, layout.next.y};
-        V2 band_kind_size = {35, 22};
-        if (render_button(state, band_kind_name, band_kind_pos, band_kind_size, false)) {
-            // Toggle between BAND_CLOSED and BAND_OPEN
-            band->kind = (band->kind == BAND_CLOSED) ? BAND_OPEN : BAND_CLOSED;
-        }
-
-        // Add line_kind toggle button
-        const char* kind_name = "Unknown";
-        switch (band->line_kind) {
-            case KIND_SHARP: kind_name = "Sharp"; break;
-            case KIND_ROUNDED: kind_name = "Rounded"; break;
-            case KIND_DOUBLE: kind_name = "Double"; break;
-            case KIND_WAVE: kind_name = "Wave"; break;
-            default: kind_name = "Unknown"; break;
-        }
-
-        V2 button_pos = {layout.next.x + 45, layout.next.y};
-        button_size = (V2){80, 22};
-        if (render_button(state, kind_name, button_pos, button_size, false)) {
-            // Cycle to next line_kind
-            band->line_kind = (band->line_kind + 1) % KIND_COUNT;
-        }
-
-        // If WAVE line_kind, show wavelength controls
-        if (band->line_kind == KIND_WAVE) {
-            // Decrement button (decrease exponent)
-            V2 dec_pos = {button_pos.x + button_size.x + 10, layout.next.y};
-            V2 small_button_size = {20, 22};
-            if (render_button(state, "-", dec_pos, small_button_size, false)) {
-                if (band->wavelength_scale > 0) {
-                    band->wavelength_scale--;
-                }
-            }
-
-            // Show current value (as 2^n)
-            char scale_text[32];
-            snprintf(scale_text, sizeof(scale_text), "%d", 1 << band->wavelength_scale);
-            V2 text_pos = {dec_pos.x + small_button_size.x + 5, layout.next.y};
-            SDL_Color white = {255, 255, 255, 255};
-            render_text(state, scale_text, text_pos, white);
-
-            // Increment button (increase exponent)
-            V2 inc_pos = {text_pos.x + 40, layout.next.y};
-            if (render_button(state, "+", inc_pos, small_button_size, false)) {
-                if (band->wavelength_scale < 8) {
-                    band->wavelength_scale++;
-                }
-            }
-
-            // Phase toggle button (false = 180°, true = 0°)
-            V2 phase_pos = {inc_pos.x + small_button_size.x + 10, layout.next.y};
-            V2 phase_button_size = {80, 22};
-            const char* phase_text = band->wave_inverted ? "sin 0" : "sin pi";
-            if (render_button(state, phase_text, phase_pos, phase_button_size, band->wave_inverted)) {
-                band->wave_inverted = !band->wave_inverted;
-            }
-
-            // Half period toggle button (false = half period, true = full period)
-            V2 half_pos = {phase_pos.x + phase_button_size.x + 5, layout.next.y};
-            V2 half_button_size = {50, 22};
-            const char* half_text = band->wave_half_period ? "Full" : "Half";
-            if (render_button(state, half_text, half_pos, half_button_size, band->wave_half_period)) {
-                band->wave_half_period = !band->wave_half_period;
-            }
-        }
-
-        advance_vertical(&layout, 25);
-
-        // Label position control - 3x3 anchor grid with offset inputs
-        int selected_pos = render_anchor_buttons(state, layout.next, 45, band->label_anchor);
-        if (selected_pos >= 0) {
-            band->label_anchor = selected_pos;
-        }
-
-        // Label offset inputs next to anchor grid
-        V2 offset_input_size = {60, 20};
-        V2 x_input_pos = {layout.next.x + 50, layout.next.y + 5};
-        V2 y_input_pos = {layout.next.x + 50, layout.next.y + 25};
-
-        render_numeric_input_field_full(state, &band->label_offset.x, x_input_pos, offset_input_size, false, 0.5f);
-        render_numeric_input_field_full(state, &band->label_offset.y, y_input_pos, offset_input_size, false, 0.5f);
-
-        advance_vertical(&layout, 50);
-
-        advance_vertical(&layout, 10);  // Space between bands
-    }
-
-    return layout;
-}
-
-void render_ui_panel(AppState* state) {
-    // Draw UI panel background
-    SDL_SetRenderDrawColor(state->renderer, 40, 40, 45, 255);
-    SDL_Rect panel_rect = {VIEWPORT_WIDTH, 0, UI_PANEL_WIDTH, WINDOW_HEIGHT};
-    SDL_RenderFillRect(state->renderer, &panel_rect);
-
-    // Draw panel border
-    SDL_SetRenderDrawColor(state->renderer, 60, 60, 65, 255);
-    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT);
-
-    Layout layout = {
-        .next = {VIEWPORT_WIDTH + 20, 20},
-        .row_start = {VIEWPORT_WIDTH + 20, 20},
-        .max = {WINDOW_WIDTH - 20, WINDOW_HEIGHT - 40}
-    };
-
-    // Layer 1: Work management
-    layout = draw_work_ui(state, layout);
-    layout.row_start = layout.next;
-
-    // Visual separator
-    SDL_SetRenderDrawColor(state->renderer, 80, 80, 85, 255);
-    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH + 10, layout.next.y, WINDOW_WIDTH - 10, layout.next.y);
-    advance_vertical(&layout, 15);
-
-    // Layer 2: Lens (band viewing/editing)
-    layout = draw_lens(state, layout);
-}
-
-void render(AppState* state) {
-    // Regenerate squares from bands every frame (immediate mode)
-    flatten_bands(&state->work.bands, &state->flattened);
-
-    // Clear screen
-    SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
-    SDL_RenderClear(state->renderer);
-
-    // Clear geometry buffer for new frame
-    geometry_buffer_clear(&state->render_ctx.geometry);
-
-    // Set viewport clipping for left side
-    SDL_Rect viewport = {0, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT};
-    SDL_RenderSetClipRect(state->renderer, &viewport);
-
-    // Draw bounding square outline using geometry buffer
-    SDL_Color gray = {100, 100, 100, 255};
-    V2 tl = get_corner_position(state, CORNER_TL);
-    V2 tr = get_corner_position(state, CORNER_TR);
-    V2 br = get_corner_position(state, CORNER_BR);
-    V2 bl = get_corner_position(state, CORNER_BL);
-
-    V2 tl_s = world_to_screen(tl, &state->camera);
-    V2 tr_s = world_to_screen(tr, &state->camera);
-    V2 br_s = world_to_screen(br, &state->camera);
-    V2 bl_s = world_to_screen(bl, &state->camera);
-
-    geometry_buffer_add_line(&state->render_ctx.geometry, tl_s, tr_s, 2.0f, gray);
-    geometry_buffer_add_line(&state->render_ctx.geometry, tr_s, br_s, 2.0f, gray);
-    geometry_buffer_add_line(&state->render_ctx.geometry, br_s, bl_s, 2.0f, gray);
-    geometry_buffer_add_line(&state->render_ctx.geometry, bl_s, tl_s, 2.0f, gray);
-
-    // Draw corner indicators using geometry buffer
-    for (int i = 0; i < 4; i++) {
-        V2 corner = get_corner_position(state, i);
-        V2 corner_s = world_to_screen(corner, &state->camera);
-        if (i == state->selected_corner) {
-            SDL_Color highlight = {255, 200, 100, 255};
-            geometry_buffer_add_arc(&state->render_ctx.geometry, corner_s,
-                                   HIGHLIGHT_SIZE * state->camera.scale,
-                                   0, M_PI * 2.0f, 2.0f, highlight, 16);
-        } else {
-            SDL_Color gray = {150, 150, 150, 255};
-            geometry_buffer_add_arc(&state->render_ctx.geometry, corner_s,
-                                   (HIGHLIGHT_SIZE / 2) * state->camera.scale,
-                                   0, M_PI * 2.0f, 2.0f, gray, 12);
-        }
-    }
-
-    if (state->selected_corner != CORNER_NONE) {
-        // Draw diagonal using geometry buffer
-        SDL_Color diagonal_color = {200, 200, 255, 255};
-        V2 diag_start_s = world_to_screen(state->diagonal.start, &state->camera);
-        V2 diag_end_s = world_to_screen(state->diagonal.end, &state->camera);
-        geometry_buffer_add_line(&state->render_ctx.geometry, diag_start_s, diag_end_s, 2.0f, diagonal_color);
-
-        // Draw flattened bands along diagonal
-        for (size_t i = 0; i < state->flattened.length; i++) {
-            Band* sq = &state->flattened.ptr[i];
-
-            // Apply sliver transform to the square's interval (from 0-10 space to viewport space)
-            Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
-
-            // Convert to 0-1 range for diagonal lerp (divide by 10 since intervals are in 0-10)
-            // Skip bands completely outside the visible range
-            if ((transformed.start > 1.0f && transformed.end > 1.0f) ||
-                (transformed.start < 0.0f && transformed.end < 0.0f)) {
-                continue;
-            }
-
-            // Check which endpoints are in range before clamping
-            bool start_in_range = (transformed.start >= 0.0f && transformed.start <= 1.0f);
-            bool end_in_range = (transformed.end >= 0.0f && transformed.end <= 1.0f);
-
-            // Calculate hide flags based on diagonal orientation
-            int hide_flags = 0;
-            switch (state->selected_corner) {
-                case CORNER_TL:  // BL→TR diagonal
-                    if (!start_in_range) hide_flags |= EDGE_LEFT | EDGE_BOTTOM;
-                    if (!end_in_range) hide_flags |= EDGE_TOP | EDGE_RIGHT;
-                    break;
-                case CORNER_TR:  // TL→BR diagonal
-                    if (!start_in_range) hide_flags |= EDGE_TOP | EDGE_LEFT;
-                    if (!end_in_range) hide_flags |= EDGE_BOTTOM | EDGE_RIGHT;
-                    break;
-                case CORNER_BR:  // TR→BL diagonal
-                    if (!start_in_range) hide_flags |= EDGE_TOP | EDGE_RIGHT;
-                    if (!end_in_range) hide_flags |= EDGE_BOTTOM | EDGE_LEFT;
-                    break;
-                case CORNER_BL:  // BR→TL diagonal
-                    if (!start_in_range) hide_flags |= EDGE_BOTTOM | EDGE_RIGHT;
-                    if (!end_in_range) hide_flags |= EDGE_TOP | EDGE_LEFT;
-                    break;
-                default:
-                    break;
-            }
-
-            // Clamp to visible range [0, 1]
-            transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
-            transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
-
-            // Get the two diagonal endpoints for this band
-            V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.start);
-            V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.end);
-
-            // Draw band using geometry buffer based on line_kind
-            float min_x = fminf(p1.x, p2.x);
-            float max_x = fmaxf(p1.x, p2.x);
-            float min_y = fminf(p1.y, p2.y);
-            float max_y = fmaxf(p1.y, p2.y);
-
-            // Convert LCH to SDL_Color for rendering
-            SDL_Color sdl_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
-
-            switch (sq->line_kind) {
-                case KIND_ROUNDED: {
-                    float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
-                    float extend = base_radius * (1.0f - 1.0f/sqrtf(2));
-                    draw_rounded_rect_geometry(&state->render_ctx.geometry,
-                                              min_x - extend, min_y - extend,
-                                              (max_x - min_x) + 2 * extend,
-                                              (max_y - min_y) + 2 * extend,
-                                              base_radius, sdl_color, &state->camera, hide_flags);
-                    break;
-                }
-                case KIND_DOUBLE:
-                    draw_double_rect_geometry(&state->render_ctx.geometry,
-                                            min_x, min_y, max_x - min_x, max_y - min_y,
-                                            sdl_color, &state->camera, hide_flags);
-                    break;
-                case KIND_WAVE:
-                    draw_wave_rect_geometry(&state->render_ctx.geometry,
-                                          min_x, min_y, max_x - min_x, max_y - min_y,
-                                          sdl_color, &state->camera, sq->wavelength_scale,
-                                          sq->wave_inverted, sq->wave_half_period, hide_flags);
-                    break;
-                case KIND_SHARP:
-                default:
-                    draw_rounded_rect_geometry(&state->render_ctx.geometry,
-                                              min_x, min_y, max_x - min_x, max_y - min_y,
-                                              0, sdl_color, &state->camera, hide_flags);
-                    break;
-            }
-        }
-
-        // Draw orientation edge from selected corner using geometry buffer
-        V2 selected = get_corner_position(state, state->selected_corner);
-        V2 selected_s = world_to_screen(selected, &state->camera);
-        V2 orient_end_s = world_to_screen(state->diagonal.end, &state->camera);
-        SDL_Color orient_color = {255, 100, 100, 255};
-        geometry_buffer_add_line(&state->render_ctx.geometry, selected_s, orient_end_s, 2.0f, orient_color);
-    }
-
-    // Render all geometry in one batch
-    if (state->render_ctx.geometry.index_count > 0) {
-        SDL_RenderGeometry(state->renderer, state->render_ctx.white_texture,
-                          state->render_ctx.geometry.vertices, state->render_ctx.geometry.vertex_count,
-                          state->render_ctx.geometry.indices, state->render_ctx.geometry.index_count);
-    }
-
-    // Draw labels for flattened bands (after geometry, still within clipping rect)
-    for (size_t i = 0; i < state->flattened.length; i++) {
-        Band* sq = &state->flattened.ptr[i];  // Using Band instead of Square
-
-        // Skip if no label
-        if (!sq->label || sq->label[0] == '\0') continue;
-
-        // Apply sliver transform to the band's interval
-        Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
-
-        // Skip bands outside visible range
-        if ((transformed.start > 1.0f && transformed.end > 1.0f) ||
-            (transformed.start < 0.0f && transformed.end < 0.0f)) {
-            continue;
-        }
-
-        // Clamp to visible range
-        float t_start = fmaxf(0.0f, fminf(1.0f, transformed.start));
-        float t_end = fmaxf(0.0f, fminf(1.0f, transformed.end));
-
-        // Calculate band corners on diagonal
-        V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, t_start);
-        V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, t_end);
-
-        // Get bounding box
-        float min_x = fminf(p1.x, p2.x);
-        float min_y = fminf(p1.y, p2.y);
-        float max_x = fmaxf(p1.x, p2.x);
-        float max_y = fmaxf(p1.y, p2.y);
-
-        // Position label based on band's label anchor
-        float padding = 3.0f;
-        float center_x = (min_x + max_x) / 2.0f;
-        float center_y = (min_y + max_y) / 2.0f;
-
-        V2 world_pos;
-        switch (sq->label_anchor) {
-            case LABEL_TOP_LEFT:
-                world_pos = (V2){min_x - padding, min_y - padding};
-                break;
-            case LABEL_TOP_CENTER:
-                world_pos = (V2){center_x, min_y - padding};
-                break;
-            case LABEL_TOP_RIGHT:
-                world_pos = (V2){max_x + padding, min_y - padding};
-                break;
-            case LABEL_MIDDLE_LEFT:
-                world_pos = (V2){min_x - padding, center_y};
-                break;
-            case LABEL_CENTER:
-                world_pos = (V2){center_x, center_y};
-                break;
-            case LABEL_MIDDLE_RIGHT:
-                world_pos = (V2){max_x + padding, center_y};
-                break;
-            case LABEL_BOTTOM_LEFT:
-                world_pos = (V2){min_x - padding, max_y + padding};
-                break;
-            case LABEL_BOTTOM_CENTER:
-                world_pos = (V2){center_x, max_y + padding};
-                break;
-            case LABEL_BOTTOM_RIGHT:
-            default:
-                world_pos = (V2){max_x + padding, max_y + padding};
-                break;
-        }
-
-        // Apply label offset
-        world_pos = v2_add(world_pos, sq->label_offset);
-        V2 label_pos = world_to_screen(world_pos, &state->camera);
-
-        SDL_Color label_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
-        render_text(state, sq->label, label_pos, label_color);
-    }
-
-    // Clear clipping rect to draw UI
-    SDL_RenderSetClipRect(state->renderer, NULL);
-
-    // Render UI panel on the right
-    render_ui_panel(state);
-
-    SDL_RenderPresent(state->renderer);
-}
-
-Corner detect_corner_click(AppState* state, V2 mouse) {
-    V2 world_mouse = screen_to_world(mouse, &state->camera);
-    for (int i = 0; i < 4; i++) {
-        V2 corner = get_corner_position(state, i);
-        if (v2_dist(world_mouse, corner) <= CORNER_RADIUS) {
-            return i;
-        }
-    }
-    return CORNER_NONE;
-}
-
-void handle_mouse_click(AppState* state, int x, int y) {
-    // Only handle clicks within the viewport
-    if (x >= VIEWPORT_WIDTH) {
-        // Click is in UI panel - handle UI interactions here
-        return;
-    }
-
-    V2 mouse = {(float)x, (float)y};
-    Corner clicked = detect_corner_click(state, mouse);
-
-    if (clicked != CORNER_NONE) {
-        state->selected_corner = clicked;
-        calculate_diagonal(state);
-    }
-}
-
 // BandArray management functions
 void band_array_init(BandArray* arr, size_t initial_capacity) {
     arr->ptr = (Band*)malloc(initial_capacity * sizeof(Band));
@@ -1960,12 +1361,6 @@ void flatten_bands(BandArray* source, BandArray* dest) {
             }
         }
     }
-}
-
-// Helper to generate harmonious colors using OKLCH
-SDL_Color make_color_oklch(float L, float C, float h) {
-    ColorOKLCH oklch = {.L = L, .C = C, .h = h};
-    return color_oklch_to_sdl(oklch);
 }
 
 // Create a new band with random color
@@ -2610,6 +2005,594 @@ void print_bands_as_code(AppState* state) {
         printf("Bands saved to %s\n", filename);
     } else {
         printf("Error: Could not create file %s\n", filename);
+    }
+}
+
+// Draw Work UI layer - manages Work objects (load, store, init)
+Layout draw_work_ui(AppState* state, Layout layout) {
+    V2 button_size = {80, 25};
+
+    // Work preset buttons
+    if (render_button(state, "Clear", layout.next, button_size, false)) {
+        init_bands_rand(state);
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
+    if (render_button(state, "Weekly", layout.next, button_size, false)) {
+        init_bands_week(state);
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
+    if (render_button(state, "TZ", layout.next, button_size, false)) {
+        init_bands_tz(state);
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
+    if (render_button(state, "Backend", layout.next, button_size, false)) {
+        init_bands_backend(state);
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
+    if (render_button(state, "Backend2", layout.next, button_size, false)) {
+        init_bands_backend2(state);
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
+    if (render_button(state, "Backend3", layout.next, button_size, false)) {
+        init_bands_backend3(state);
+    }
+
+    // Move to next row
+    advance_vertical(&layout, 30);
+
+    // Export and I/O buttons
+    if (render_button(state, "Print", layout.next, button_size, false)) {
+        print_bands_as_code(state);
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
+    // Placeholder for future Load button
+    // render_button(state, "Load", layout.next, button_size, false);
+    // advance_horizontal(&layout, button_size.x + 10);
+
+    // Placeholder for future Store button
+    // render_button(state, "Store", layout.next, button_size, false);
+
+    advance_vertical(&layout, 30);
+
+    return layout;
+}
+
+// Draw Lens layer - views and edits bands within current Work
+Layout draw_lens(AppState* state, Layout layout) {
+    V2 button_size = {80, 25};
+
+    // Add band buttons
+    if (render_button(state, "+ Band", layout.next, button_size, false)) {
+        add_random_band(state);
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
+    if (render_button(state, "+ Open", layout.next, button_size, false)) {
+        add_open_band(state);
+    }
+
+    // Move to next row
+    advance_vertical(&layout, 30);
+    layout.row_start = layout.next;
+
+    // Band list navigation buttons
+    V2 nav_button_size = {30, 22};
+    if (render_button(state, "Up", layout.next, nav_button_size, false)) {
+        if (state->band_offset > 0) {
+            state->band_offset--;
+        }
+    }
+    advance_horizontal(&layout, nav_button_size.x + 5);
+
+    if (render_button(state, "Dn", layout.next, nav_button_size, false)) {
+        if (state->band_offset < (int)state->work.bands.length - 1) {
+            state->band_offset++;
+        }
+    }
+    advance_vertical(&layout, 25);
+
+    // Render each band
+    char buffer[256];
+    for (size_t i = state->band_offset; i < state->work.bands.length; i++) {
+        Band* band = &state->work.bands.ptr[i];
+
+        // Band header with band number (show actual index)
+        snprintf(buffer, sizeof(buffer), "    %zu:", i + 1);
+        SDL_Color band_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
+        render_text(state, buffer, layout.next, band_color);
+
+        // Label input field next to band number
+        V2 label_pos = {layout.next.x + 100, layout.next.y};
+        V2 label_size = {120, 20};
+        render_text_input_field(state, band->label, 32, label_pos, label_size);
+        advance_vertical(&layout, 25);
+
+        // Add split button (S) near the right side
+        V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
+        V2 split_size = {25, 22};
+        if (render_button(state, "S", split_pos, split_size, false)) {
+            band_array_split(&state->work.bands, i, &state->work.labels);
+            break;  // Exit loop since array has changed
+        }
+
+        // Add copy button (C) near the right side
+        V2 copy_pos = {WINDOW_WIDTH - 50, layout.next.y + 25};
+        V2 copy_size = {25, 22};
+        if (render_button(state, "C", copy_pos, copy_size, false)) {
+            band_array_copy_after(&state->work.bands, i, &state->work.labels);
+            break;  // Exit loop since array has changed
+        }
+
+        // Add remove button (X) at the right side
+        V2 remove_pos = {WINDOW_WIDTH - 50, layout.next.y};
+        V2 remove_size = {25, 22};
+        SDL_Color red_tint = {200, 100, 100, 255};
+        if (render_button(state, "X", remove_pos, remove_size, false)) {
+            band_array_remove(&state->work.bands, i);
+            break;  // Exit loop since array has changed
+        }
+
+        // Band details
+        render_text(state, "Start:", layout.next, band_color);
+        V2 input_pos = {layout.next.x + 100, layout.next.y};
+        V2 input_size = {80, 20};
+
+        // Add follow_previous toggle button next to start field
+        V2 follow_button_pos = {input_pos.x + input_size.x + 5, input_pos.y};
+        V2 follow_button_size = {25, 20};
+        const char* follow_text = band->follow_previous ? "^" : " ";
+        if (render_button(state, follow_text, follow_button_pos, follow_button_size, band->follow_previous)) {
+            band->follow_previous = !band->follow_previous;
+        }
+
+        // Render start field (disabled if follow_previous is true)
+        // Scale drag sensitivity based on sliver camera zoom - more zoom means finer control
+        float drag_scale = 0.005f / state->sliver_camera.scale;  // Inversely proportional to zoom
+        float old_start = band->interval.start;
+        render_numeric_input_field_full(state, &band->interval.start, input_pos, input_size, band->follow_previous, drag_scale);
+        // By default, move end to keep size fixed (unless Cmd is held for independent movement)
+        if (!(SDL_GetModState() & KMOD_GUI) && band->interval.start != old_start) {
+            band->interval.end += (band->interval.start - old_start);
+        }
+        advance_vertical(&layout, 20);
+
+        render_text(state, "  End:", layout.next, band_color);
+        input_pos = (V2){layout.next.x + 100, layout.next.y};
+        render_numeric_input_field_full(state, &band->interval.end, input_pos, input_size, false, drag_scale);
+        advance_vertical(&layout, 20);
+
+        // Hue input field
+        render_text(state, "Color:", layout.next, band_color);
+        input_pos = (V2){layout.next.x + 100, layout.next.y};
+
+        // Store old hue to detect changes
+        float old_hue = band->color.hue;
+        render_numeric_input_field_full(state, &band->color.hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
+
+        // Clamp hue to valid range if it changed
+        if (band->color.hue != old_hue) {
+            while (band->color.hue < 0) band->color.hue += 360.0f;
+            while (band->color.hue >= 360.0f) band->color.hue -= 360.0f;
+        }
+
+        input_pos = (V2){layout.next.x + 100 + input_size.x, layout.next.y};
+        // Store old lightness to detect changes
+        float old_lightness = band->color.lightness;
+        render_numeric_input_field_full(state, &band->color.lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+
+        // Clamp lightness to valid range if it changed
+        if (band->color.lightness != old_lightness) {
+            while (band->color.lightness < 0) band->color.lightness = 0.0f;
+            while (band->color.lightness > 1.0f) band->color.lightness = 1.0f;
+        }
+        input_pos = (V2){layout.next.x + 100 + input_size.x*2, layout.next.y};
+        // Store old chroma to detect changes
+        float old_chroma = band->color.chroma;
+        render_numeric_input_field_full(state, &band->color.chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+
+        // Clamp chroma to valid range if it changed
+        if (band->color.chroma != old_chroma) {
+            while (band->color.chroma < 0) band->color.chroma = 0.0f;
+            while (band->color.chroma > 1.0f) band->color.chroma = 1.0f;
+        }
+        advance_vertical(&layout, 25);
+
+        // Add band kind toggle button (CLOSED/OPEN)
+        const char* band_kind_name = (band->kind == BAND_OPEN) ? "><" : "<>";
+        V2 band_kind_pos = {layout.next.x, layout.next.y};
+        V2 band_kind_size = {35, 22};
+        if (render_button(state, band_kind_name, band_kind_pos, band_kind_size, false)) {
+            // Toggle between BAND_CLOSED and BAND_OPEN
+            band->kind = (band->kind == BAND_CLOSED) ? BAND_OPEN : BAND_CLOSED;
+        }
+
+        // Add line_kind toggle button
+        const char* kind_name = "Unknown";
+        switch (band->line_kind) {
+            case KIND_SHARP: kind_name = "Sharp"; break;
+            case KIND_ROUNDED: kind_name = "Rounded"; break;
+            case KIND_DOUBLE: kind_name = "Double"; break;
+            case KIND_WAVE: kind_name = "Wave"; break;
+            default: kind_name = "Unknown"; break;
+        }
+
+        V2 button_pos = {layout.next.x + 45, layout.next.y};
+        button_size = (V2){80, 22};
+        if (render_button(state, kind_name, button_pos, button_size, false)) {
+            // Cycle to next line_kind
+            band->line_kind = (band->line_kind + 1) % KIND_COUNT;
+        }
+
+        // If WAVE line_kind, show wavelength controls
+        if (band->line_kind == KIND_WAVE) {
+            // Decrement button (decrease exponent)
+            V2 dec_pos = {button_pos.x + button_size.x + 10, layout.next.y};
+            V2 small_button_size = {20, 22};
+            if (render_button(state, "-", dec_pos, small_button_size, false)) {
+                if (band->wavelength_scale > 0) {
+                    band->wavelength_scale--;
+                }
+            }
+
+            // Show current value (as 2^n)
+            char scale_text[32];
+            snprintf(scale_text, sizeof(scale_text), "%d", 1 << band->wavelength_scale);
+            V2 text_pos = {dec_pos.x + small_button_size.x + 5, layout.next.y};
+            SDL_Color white = {255, 255, 255, 255};
+            render_text(state, scale_text, text_pos, white);
+
+            // Increment button (increase exponent)
+            V2 inc_pos = {text_pos.x + 40, layout.next.y};
+            if (render_button(state, "+", inc_pos, small_button_size, false)) {
+                if (band->wavelength_scale < 8) {
+                    band->wavelength_scale++;
+                }
+            }
+
+            // Phase toggle button (false = 180°, true = 0°)
+            V2 phase_pos = {inc_pos.x + small_button_size.x + 10, layout.next.y};
+            V2 phase_button_size = {80, 22};
+            const char* phase_text = band->wave_inverted ? "sin 0" : "sin pi";
+            if (render_button(state, phase_text, phase_pos, phase_button_size, band->wave_inverted)) {
+                band->wave_inverted = !band->wave_inverted;
+            }
+
+            // Half period toggle button (false = half period, true = full period)
+            V2 half_pos = {phase_pos.x + phase_button_size.x + 5, layout.next.y};
+            V2 half_button_size = {50, 22};
+            const char* half_text = band->wave_half_period ? "Full" : "Half";
+            if (render_button(state, half_text, half_pos, half_button_size, band->wave_half_period)) {
+                band->wave_half_period = !band->wave_half_period;
+            }
+        }
+
+        advance_vertical(&layout, 25);
+
+        // Label position control - 3x3 anchor grid with offset inputs
+        int selected_pos = render_anchor_buttons(state, layout.next, 45, band->label_anchor);
+        if (selected_pos >= 0) {
+            band->label_anchor = selected_pos;
+        }
+
+        // Label offset inputs next to anchor grid
+        V2 offset_input_size = {60, 20};
+        V2 x_input_pos = {layout.next.x + 50, layout.next.y + 5};
+        V2 y_input_pos = {layout.next.x + 50, layout.next.y + 25};
+
+        render_numeric_input_field_full(state, &band->label_offset.x, x_input_pos, offset_input_size, false, 0.5f);
+        render_numeric_input_field_full(state, &band->label_offset.y, y_input_pos, offset_input_size, false, 0.5f);
+
+        advance_vertical(&layout, 50);
+
+        advance_vertical(&layout, 10);  // Space between bands
+    }
+
+    return layout;
+}
+
+void render_ui_panel(AppState* state) {
+    // Draw UI panel background
+    SDL_SetRenderDrawColor(state->renderer, 40, 40, 45, 255);
+    SDL_Rect panel_rect = {VIEWPORT_WIDTH, 0, UI_PANEL_WIDTH, WINDOW_HEIGHT};
+    SDL_RenderFillRect(state->renderer, &panel_rect);
+
+    // Draw panel border
+    SDL_SetRenderDrawColor(state->renderer, 60, 60, 65, 255);
+    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT);
+
+    Layout layout = {
+        .next = {VIEWPORT_WIDTH + 20, 20},
+        .row_start = {VIEWPORT_WIDTH + 20, 20},
+        .max = {WINDOW_WIDTH - 20, WINDOW_HEIGHT - 40}
+    };
+
+    // Layer 1: Work management
+    layout = draw_work_ui(state, layout);
+    layout.row_start = layout.next;
+
+    // Visual separator
+    SDL_SetRenderDrawColor(state->renderer, 80, 80, 85, 255);
+    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH + 10, layout.next.y, WINDOW_WIDTH - 10, layout.next.y);
+    advance_vertical(&layout, 15);
+
+    // Layer 2: Lens (band viewing/editing)
+    layout = draw_lens(state, layout);
+}
+
+void render(AppState* state) {
+    // Regenerate squares from bands every frame (immediate mode)
+    flatten_bands(&state->work.bands, &state->flattened);
+
+    // Clear screen
+    SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
+    SDL_RenderClear(state->renderer);
+
+    // Clear geometry buffer for new frame
+    geometry_buffer_clear(&state->render_ctx.geometry);
+
+    // Set viewport clipping for left side
+    SDL_Rect viewport = {0, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT};
+    SDL_RenderSetClipRect(state->renderer, &viewport);
+
+    // Draw bounding square outline using geometry buffer
+    SDL_Color gray = {100, 100, 100, 255};
+    V2 tl = get_corner_position(state, CORNER_TL);
+    V2 tr = get_corner_position(state, CORNER_TR);
+    V2 br = get_corner_position(state, CORNER_BR);
+    V2 bl = get_corner_position(state, CORNER_BL);
+
+    V2 tl_s = world_to_screen(tl, &state->camera);
+    V2 tr_s = world_to_screen(tr, &state->camera);
+    V2 br_s = world_to_screen(br, &state->camera);
+    V2 bl_s = world_to_screen(bl, &state->camera);
+
+    geometry_buffer_add_line(&state->render_ctx.geometry, tl_s, tr_s, 2.0f, gray);
+    geometry_buffer_add_line(&state->render_ctx.geometry, tr_s, br_s, 2.0f, gray);
+    geometry_buffer_add_line(&state->render_ctx.geometry, br_s, bl_s, 2.0f, gray);
+    geometry_buffer_add_line(&state->render_ctx.geometry, bl_s, tl_s, 2.0f, gray);
+
+    // Draw corner indicators using geometry buffer
+    for (int i = 0; i < 4; i++) {
+        V2 corner = get_corner_position(state, i);
+        V2 corner_s = world_to_screen(corner, &state->camera);
+        if (i == state->selected_corner) {
+            SDL_Color highlight = {255, 200, 100, 255};
+            geometry_buffer_add_arc(&state->render_ctx.geometry, corner_s,
+                                   HIGHLIGHT_SIZE * state->camera.scale,
+                                   0, M_PI * 2.0f, 2.0f, highlight, 16);
+        } else {
+            SDL_Color gray = {150, 150, 150, 255};
+            geometry_buffer_add_arc(&state->render_ctx.geometry, corner_s,
+                                   (HIGHLIGHT_SIZE / 2) * state->camera.scale,
+                                   0, M_PI * 2.0f, 2.0f, gray, 12);
+        }
+    }
+
+    if (state->selected_corner != CORNER_NONE) {
+        // Draw diagonal using geometry buffer
+        SDL_Color diagonal_color = {200, 200, 255, 255};
+        V2 diag_start_s = world_to_screen(state->diagonal.start, &state->camera);
+        V2 diag_end_s = world_to_screen(state->diagonal.end, &state->camera);
+        geometry_buffer_add_line(&state->render_ctx.geometry, diag_start_s, diag_end_s, 2.0f, diagonal_color);
+
+        // Draw flattened bands along diagonal
+        for (size_t i = 0; i < state->flattened.length; i++) {
+            Band* sq = &state->flattened.ptr[i];
+
+            // Apply sliver transform to the square's interval (from 0-10 space to viewport space)
+            Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
+
+            // Convert to 0-1 range for diagonal lerp (divide by 10 since intervals are in 0-10)
+            // Skip bands completely outside the visible range
+            if ((transformed.start > 1.0f && transformed.end > 1.0f) ||
+                (transformed.start < 0.0f && transformed.end < 0.0f)) {
+                continue;
+            }
+
+            // Check which endpoints are in range before clamping
+            bool start_in_range = (transformed.start >= 0.0f && transformed.start <= 1.0f);
+            bool end_in_range = (transformed.end >= 0.0f && transformed.end <= 1.0f);
+
+            // Calculate hide flags based on diagonal orientation
+            int hide_flags = 0;
+            switch (state->selected_corner) {
+                case CORNER_TL:  // BL→TR diagonal
+                    if (!start_in_range) hide_flags |= EDGE_LEFT | EDGE_BOTTOM;
+                    if (!end_in_range) hide_flags |= EDGE_TOP | EDGE_RIGHT;
+                    break;
+                case CORNER_TR:  // TL→BR diagonal
+                    if (!start_in_range) hide_flags |= EDGE_TOP | EDGE_LEFT;
+                    if (!end_in_range) hide_flags |= EDGE_BOTTOM | EDGE_RIGHT;
+                    break;
+                case CORNER_BR:  // TR→BL diagonal
+                    if (!start_in_range) hide_flags |= EDGE_TOP | EDGE_RIGHT;
+                    if (!end_in_range) hide_flags |= EDGE_BOTTOM | EDGE_LEFT;
+                    break;
+                case CORNER_BL:  // BR→TL diagonal
+                    if (!start_in_range) hide_flags |= EDGE_BOTTOM | EDGE_RIGHT;
+                    if (!end_in_range) hide_flags |= EDGE_TOP | EDGE_LEFT;
+                    break;
+                default:
+                    break;
+            }
+
+            // Clamp to visible range [0, 1]
+            transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
+            transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
+
+            // Get the two diagonal endpoints for this band
+            V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.start);
+            V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.end);
+
+            // Draw band using geometry buffer based on line_kind
+            float min_x = fminf(p1.x, p2.x);
+            float max_x = fmaxf(p1.x, p2.x);
+            float min_y = fminf(p1.y, p2.y);
+            float max_y = fmaxf(p1.y, p2.y);
+
+            // Convert LCH to SDL_Color for rendering
+            SDL_Color sdl_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
+
+            switch (sq->line_kind) {
+                case KIND_ROUNDED: {
+                    float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
+                    float extend = base_radius * (1.0f - 1.0f/sqrtf(2));
+                    draw_rounded_rect_geometry(&state->render_ctx.geometry,
+                                              min_x - extend, min_y - extend,
+                                              (max_x - min_x) + 2 * extend,
+                                              (max_y - min_y) + 2 * extend,
+                                              base_radius, sdl_color, &state->camera, hide_flags);
+                    break;
+                }
+                case KIND_DOUBLE:
+                    draw_double_rect_geometry(&state->render_ctx.geometry,
+                                            min_x, min_y, max_x - min_x, max_y - min_y,
+                                            sdl_color, &state->camera, hide_flags);
+                    break;
+                case KIND_WAVE:
+                    draw_wave_rect_geometry(&state->render_ctx.geometry,
+                                          min_x, min_y, max_x - min_x, max_y - min_y,
+                                          sdl_color, &state->camera, sq->wavelength_scale,
+                                          sq->wave_inverted, sq->wave_half_period, hide_flags);
+                    break;
+                case KIND_SHARP:
+                default:
+                    draw_rounded_rect_geometry(&state->render_ctx.geometry,
+                                              min_x, min_y, max_x - min_x, max_y - min_y,
+                                              0, sdl_color, &state->camera, hide_flags);
+                    break;
+            }
+        }
+
+        // Draw orientation edge from selected corner using geometry buffer
+        V2 selected = get_corner_position(state, state->selected_corner);
+        V2 selected_s = world_to_screen(selected, &state->camera);
+        V2 orient_end_s = world_to_screen(state->diagonal.end, &state->camera);
+        SDL_Color orient_color = {255, 100, 100, 255};
+        geometry_buffer_add_line(&state->render_ctx.geometry, selected_s, orient_end_s, 2.0f, orient_color);
+    }
+
+    // Render all geometry in one batch
+    if (state->render_ctx.geometry.index_count > 0) {
+        SDL_RenderGeometry(state->renderer, state->render_ctx.white_texture,
+                          state->render_ctx.geometry.vertices, state->render_ctx.geometry.vertex_count,
+                          state->render_ctx.geometry.indices, state->render_ctx.geometry.index_count);
+    }
+
+    // Draw labels for flattened bands (after geometry, still within clipping rect)
+    for (size_t i = 0; i < state->flattened.length; i++) {
+        Band* sq = &state->flattened.ptr[i];  // Using Band instead of Square
+
+        // Skip if no label
+        if (!sq->label || sq->label[0] == '\0') continue;
+
+        // Apply sliver transform to the band's interval
+        Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
+
+        // Skip bands outside visible range
+        if ((transformed.start > 1.0f && transformed.end > 1.0f) ||
+            (transformed.start < 0.0f && transformed.end < 0.0f)) {
+            continue;
+        }
+
+        // Clamp to visible range
+        float t_start = fmaxf(0.0f, fminf(1.0f, transformed.start));
+        float t_end = fmaxf(0.0f, fminf(1.0f, transformed.end));
+
+        // Calculate band corners on diagonal
+        V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, t_start);
+        V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, t_end);
+
+        // Get bounding box
+        float min_x = fminf(p1.x, p2.x);
+        float min_y = fminf(p1.y, p2.y);
+        float max_x = fmaxf(p1.x, p2.x);
+        float max_y = fmaxf(p1.y, p2.y);
+
+        // Position label based on band's label anchor
+        float padding = 3.0f;
+        float center_x = (min_x + max_x) / 2.0f;
+        float center_y = (min_y + max_y) / 2.0f;
+
+        V2 world_pos;
+        switch (sq->label_anchor) {
+            case LABEL_TOP_LEFT:
+                world_pos = (V2){min_x - padding, min_y - padding};
+                break;
+            case LABEL_TOP_CENTER:
+                world_pos = (V2){center_x, min_y - padding};
+                break;
+            case LABEL_TOP_RIGHT:
+                world_pos = (V2){max_x + padding, min_y - padding};
+                break;
+            case LABEL_MIDDLE_LEFT:
+                world_pos = (V2){min_x - padding, center_y};
+                break;
+            case LABEL_CENTER:
+                world_pos = (V2){center_x, center_y};
+                break;
+            case LABEL_MIDDLE_RIGHT:
+                world_pos = (V2){max_x + padding, center_y};
+                break;
+            case LABEL_BOTTOM_LEFT:
+                world_pos = (V2){min_x - padding, max_y + padding};
+                break;
+            case LABEL_BOTTOM_CENTER:
+                world_pos = (V2){center_x, max_y + padding};
+                break;
+            case LABEL_BOTTOM_RIGHT:
+            default:
+                world_pos = (V2){max_x + padding, max_y + padding};
+                break;
+        }
+
+        // Apply label offset
+        world_pos = v2_add(world_pos, sq->label_offset);
+        V2 label_pos = world_to_screen(world_pos, &state->camera);
+
+        SDL_Color label_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
+        render_text(state, sq->label, label_pos, label_color);
+    }
+
+    // Clear clipping rect to draw UI
+    SDL_RenderSetClipRect(state->renderer, NULL);
+
+    // Render UI panel on the right
+    render_ui_panel(state);
+
+    SDL_RenderPresent(state->renderer);
+}
+
+Corner detect_corner_click(AppState* state, V2 mouse) {
+    V2 world_mouse = screen_to_world(mouse, &state->camera);
+    for (int i = 0; i < 4; i++) {
+        V2 corner = get_corner_position(state, i);
+        if (v2_dist(world_mouse, corner) <= CORNER_RADIUS) {
+            return i;
+        }
+    }
+    return CORNER_NONE;
+}
+
+void handle_mouse_click(AppState* state, int x, int y) {
+    // Only handle clicks within the viewport
+    if (x >= VIEWPORT_WIDTH) {
+        // Click is in UI panel - handle UI interactions here
+        return;
+    }
+
+    V2 mouse = {(float)x, (float)y};
+    Corner clicked = detect_corner_click(state, mouse);
+
+    if (clicked != CORNER_NONE) {
+        state->selected_corner = clicked;
+        calculate_diagonal(state);
     }
 }
 
