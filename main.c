@@ -95,6 +95,12 @@ typedef enum {
 typedef enum {
     UI_LENS = 0,
     UI_SHELF = 1
+} UIStep;
+
+typedef struct {
+    UIStep step;
+    bool shelf_mode_save;
+    char suggested_filename[256];
 } UIState;
 
 typedef struct {
@@ -2239,14 +2245,15 @@ Layout draw_work_ui(AppState* state, Layout layout) {
     if (render_button(state, "Store", layout.next, button_size, false)) {
         time_t now = time(NULL);
         struct tm *tm_info = localtime(&now);
-        char filename[256];
-        strftime(filename, sizeof(filename), "work_%Y-%m-%d_%H-%M-%S.wo", tm_info);
-        work_save(&state->work, filename);
+        strftime(state->ui_state.suggested_filename, sizeof(state->ui_state.suggested_filename), "work_%Y-%m-%d_%H-%M-%S.wo", tm_info);
+        state->ui_state.shelf_mode_save = true;
+        state->ui_state.step = UI_SHELF;
     }
     advance_horizontal(&layout, button_size.x + 10);
 
     if (render_button(state, "Load", layout.next, button_size, false)) {
-        state->ui_state = UI_SHELF;
+        state->ui_state.shelf_mode_save = false;
+        state->ui_state.step = UI_SHELF;
     }
 
     advance_vertical(&layout, 30);
@@ -2254,35 +2261,56 @@ Layout draw_work_ui(AppState* state, Layout layout) {
     return layout;
 }
 
-// Draw Lens layer - views and edits bands within current Work
+// Draw Shelf layer - file browser for load/save
 Layout draw_shelf(AppState* state, Layout layout) {
     V2 button_size = {300, 30};
     SDL_Color white = {255, 255, 255, 255};
 
-    render_text(state, "Select a work file to load:", layout.next, white);
-    advance_vertical(&layout, 35);
+    if (state->ui_state.shelf_mode_save) {
+        render_text(state, "Save work file:", layout.next, white);
+        advance_vertical(&layout, 35);
 
-    FileList file_list;
-    get_wo_files(&file_list);
+        V2 input_pos = layout.next;
+        V2 input_size = {400, 25};
+        render_text_input_field(state, state->ui_state.suggested_filename, 256, input_pos, input_size);
+        advance_vertical(&layout, 35);
 
-    if (file_list.count == 0) {
-        render_text(state, "No .wo files found", layout.next, white);
-    } else {
-        for (size_t i = 0; i < file_list.count; i++) {
-            if (render_button(state, file_list.files[i], layout.next, button_size, false)) {
-                work_load(&state->work, file_list.files[i]);
-                state->ui_state = UI_LENS;
-                break;
-            }
-            advance_vertical(&layout, button_size.y + 5);
+        V2 save_button_size = {80, 25};
+        if (render_button(state, "Save", layout.next, save_button_size, false)) {
+            work_save(&state->work, state->ui_state.suggested_filename);
+            state->ui_state.step = UI_LENS;
         }
-    }
+        advance_horizontal(&layout, save_button_size.x + 10);
 
-    advance_vertical(&layout, 15);
+        if (render_button(state, "Cancel", layout.next, save_button_size, false)) {
+            state->ui_state.step = UI_LENS;
+        }
+    } else {
+        render_text(state, "Select a work file to load:", layout.next, white);
+        advance_vertical(&layout, 35);
 
-    V2 cancel_button_size = {80, 25};
-    if (render_button(state, "Cancel", layout.next, cancel_button_size, false)) {
-        state->ui_state = UI_LENS;
+        FileList file_list;
+        get_wo_files(&file_list);
+
+        if (file_list.count == 0) {
+            render_text(state, "No .wo files found", layout.next, white);
+        } else {
+            for (size_t i = 0; i < file_list.count; i++) {
+                if (render_button(state, file_list.files[i], layout.next, button_size, false)) {
+                    work_load(&state->work, file_list.files[i]);
+                    state->ui_state.step = UI_LENS;
+                    break;
+                }
+                advance_vertical(&layout, button_size.y + 5);
+            }
+        }
+
+        advance_vertical(&layout, 15);
+
+        V2 cancel_button_size = {80, 25};
+        if (render_button(state, "Cancel", layout.next, cancel_button_size, false)) {
+            state->ui_state.step = UI_LENS;
+        }
     }
 
     return layout;
@@ -2546,7 +2574,7 @@ void render_ui_panel(AppState* state) {
     advance_vertical(&layout, 15);
 
     // Layer 2: Switch between SHELF (file list) and LENS (band editing)
-    if (state->ui_state == UI_SHELF) {
+    if (state->ui_state.step == UI_SHELF) {
         layout = draw_shelf(state, layout);
     } else {
         layout = draw_lens(state, layout);
@@ -2838,7 +2866,9 @@ int main(int argc, char* argv[]) {
 
     AppState state = {0};
     state.running = true;
-    state.ui_state = UI_LENS;
+    state.ui_state.step = UI_LENS;
+    state.ui_state.shelf_mode_save = false;
+    state.ui_state.suggested_filename[0] = '\0';
     state.selected_corner = CORNER_BR;  // Start with bottom-right selected
     state.label_anchor = LABEL_BOTTOM_RIGHT;  // Start with bottom-right labels
     state.band_offset = 0;  // Start at beginning of band list
