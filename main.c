@@ -26,12 +26,6 @@
 #define EDGE_BOTTOM (1 << 2)  // 0x04
 #define EDGE_LEFT   (1 << 3)  // 0x08
 
-// Helper to generate harmonious colors using OKLCH
-SDL_Color make_color_oklch(float L, float C, float h) {
-    ColorOKLCH oklch = {.L = L, .C = C, .h = h};
-    return color_oklch_to_sdl(oklch);
-}
-
 // Vector 2D struct and operations
 typedef struct {
     float x, y;

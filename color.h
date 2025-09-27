@@ -245,6 +245,12 @@ static ColorOKLCH color_sdl_to_oklch(SDL_Color c) {
 static SDL_Color color_oklch_to_sdl(ColorOKLCH oklch) {
     return color_to_sdl(color_oklch_to_srgb(oklch));
 }
+
+// Helper to generate harmonious colors using OKLCH
+SDL_Color make_color_oklch(float L, float C, float h) {
+    ColorOKLCH oklch = {.L = L, .C = C, .h = h};
+    return color_oklch_to_sdl(oklch);
+}
 #endif
 
 // ============================================================================
