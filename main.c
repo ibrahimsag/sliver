@@ -43,9 +43,9 @@ typedef struct {
 
 typedef struct {
     char* ptr;         // Pointer to the fixed buffer
-    size_t size;       // Current number of 32-byte chunks used
+    size_t count;      // Current number of 32-byte chunks used
     size_t capacity;   // Total number of 32-byte chunks available
-} LabelBuffer;
+} LabelArray;
 
 typedef struct {
     char* ptr;         // Pointer to the buffer
@@ -91,7 +91,7 @@ typedef struct {
     BandKind kind;  // BAND_CLOSED or BAND_OPEN
     LineKind line_kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
     LCH color;     // Color in OKLCH color space
-    char* label;  // Label text for the band (pointer into LabelBuffer)
+    char* label;  // Label text for the band (pointer into LabelArray)
     int wavelength_scale;  // Multiplier for wavelength when line_kind is WAVE
     bool wave_inverted;  // Whether to use π phase offset for waves
     bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
@@ -105,6 +105,13 @@ typedef struct {
     size_t length;    // Number of bands currently in use
     size_t capacity;  // Total allocated capacity
 } BandArray;
+
+typedef struct {
+    char* arena;           // Single arena allocation
+    size_t arena_size;     // Total size of arena
+    BandArray bands;       // Band definitions
+    LabelArray labels;     // Label strings
+} Work;
 
 V2 v2_add(V2 a, V2 b) { return (V2){a.x + b.x, a.y + b.y}; }
 V2 v2_sub(V2 a, V2 b) { return (V2){a.x - b.x, a.y - b.y}; }
@@ -166,9 +173,8 @@ typedef struct {
     float bounding_half;
     Corner selected_corner;
     Diagonal diagonal;
-    BandArray bands;      // Dynamic array of band definitions
-    BandArray flattened;  // Flattened bands (one per interval)
-    LabelBuffer label_buffer;  // Memory pool for band labels
+    Work work;            // Band and label data with arena allocation
+    BandArray flattened;  // Flattened bands (temporary for rendering)
     StringBuilder string_builder;  // String builder for building strings
     Camera camera;  // For 2D viewport movement
     SliverCamera sliver_camera;  // For 1D parameter space windowing
@@ -301,8 +307,8 @@ void init_bands_backend(AppState* state);
 void init_bands_backend2(AppState* state);
 void init_bands_backend3(AppState* state);
 void band_array_remove(BandArray* arr, size_t index);
-void band_array_copy_after(BandArray* arr, size_t index, LabelBuffer* lb);
-void band_array_split(BandArray* arr, size_t index, LabelBuffer* lb);
+void band_array_copy_after(BandArray* arr, size_t index, LabelArray* lb);
+void band_array_split(BandArray* arr, size_t index, LabelArray* lb);
 void add_random_band(AppState* state);
 void add_open_band(AppState* state);
 void print_bands_as_code(AppState* state);
@@ -335,29 +341,57 @@ void string_append(StringBuilder* sb, const char* format, ...) {
     }
 }
 
-// LabelBuffer functions
-void label_buffer_init(LabelBuffer* lb) {
-    lb->capacity = 128;  // 128 labels * 32 bytes = 4KB
-    lb->ptr = calloc(lb->capacity * 32, 1);  // Zero-initialized
-    lb->size = 0;
-}
+// LabelArray functions
 
-char* label_buffer_allocate(LabelBuffer* lb) {
-    assert(lb->size < lb->capacity);  // Die if full
-    char* label = lb->ptr + (lb->size * 32);
+char* label_array_allocate(LabelArray* lb) {
+    assert(lb->count < lb->capacity);  // Die if full
+    char* label = lb->ptr + (lb->count * 32);
     // Default to a single letter from the alphabet, cycling A-Z
-    snprintf(label, 32, "%c", 'A' + (char)(lb->size % 26));
-    lb->size++;
+    snprintf(label, 32, "%c", 'A' + (char)(lb->count % 26));
+    lb->count++;
     return label;
 }
 
-char* label_buffer_allocate_string(LabelBuffer* lb, const char* str) {
-    char* label = label_buffer_allocate(lb);
+char* label_array_allocate_string(LabelArray* lb, const char* str) {
+    char* label = label_array_allocate(lb);
     if (str) {
         strncpy(label, str, 31);
         label[31] = '\0';
     }
     return label;
+}
+
+// Work functions
+void work_init(Work* work, size_t band_capacity, size_t label_capacity) {
+    // Calculate arena size
+    size_t bands_size = band_capacity * sizeof(Band);
+    size_t labels_size = label_capacity * 32;  // 32 bytes per label
+    work->arena_size = bands_size + labels_size;
+
+    // Allocate arena
+    work->arena = (char*)calloc(work->arena_size, 1);
+
+    // Set up bands array
+    work->bands.ptr = (Band*)work->arena;
+    work->bands.length = 0;
+    work->bands.capacity = band_capacity;
+
+    // Set up labels array
+    work->labels.ptr = work->arena + bands_size;
+    work->labels.count = 0;
+    work->labels.capacity = label_capacity;
+}
+
+void work_free(Work* work) {
+    free(work->arena);
+    work->arena = NULL;
+    work->arena_size = 0;
+    work->bands.ptr = NULL;
+    work->bands.length = 0;
+    work->bands.capacity = 0;
+    work->labels.ptr = NULL;
+    work->labels.count = 0;
+    work->labels.capacity = 0;
 }
 
 // Geometry buffer functions
@@ -1108,7 +1142,7 @@ void render_band_summaries(AppState* state) {
     advance_horizontal(&layout, nav_button_size.x + 5);
 
     if (render_button(state, "Dn", layout.next, nav_button_size, false)) {
-        if (state->band_offset < (int)state->bands.length - 1) {
+        if (state->band_offset < (int)state->work.bands.length - 1) {
             state->band_offset++;
         }
     }
@@ -1116,8 +1150,8 @@ void render_band_summaries(AppState* state) {
 
     // Render each band
     char buffer[256];
-    for (size_t i = state->band_offset; i < state->bands.length; i++) {
-        Band* band = &state->bands.ptr[i];
+    for (size_t i = state->band_offset; i < state->work.bands.length; i++) {
+        Band* band = &state->work.bands.ptr[i];
 
         // Band header with band number (show actual index)
         snprintf(buffer, sizeof(buffer), "    %zu:", i + 1);
@@ -1134,7 +1168,7 @@ void render_band_summaries(AppState* state) {
         V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
         V2 split_size = {25, 22};
         if (render_button(state, "S", split_pos, split_size, false)) {
-            band_array_split(&state->bands, i, &state->label_buffer);
+            band_array_split(&state->work.bands, i, &state->work.labels);
             break;  // Exit loop since array has changed
         }
 
@@ -1142,7 +1176,7 @@ void render_band_summaries(AppState* state) {
         V2 copy_pos = {WINDOW_WIDTH - 50, layout.next.y + 25};
         V2 copy_size = {25, 22};
         if (render_button(state, "C", copy_pos, copy_size, false)) {
-            band_array_copy_after(&state->bands, i, &state->label_buffer);
+            band_array_copy_after(&state->work.bands, i, &state->work.labels);
             break;  // Exit loop since array has changed
         }
 
@@ -1151,7 +1185,7 @@ void render_band_summaries(AppState* state) {
         V2 remove_size = {25, 22};
         SDL_Color red_tint = {200, 100, 100, 255};
         if (render_button(state, "X", remove_pos, remove_size, false)) {
-            band_array_remove(&state->bands, i);
+            band_array_remove(&state->work.bands, i);
             break;  // Exit loop since array has changed
         }
 
@@ -1500,7 +1534,7 @@ void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, f
 
 void render(AppState* state) {
     // Regenerate squares from bands every frame (immediate mode)
-    flatten_bands(&state->bands, &state->flattened);
+    flatten_bands(&state->work.bands, &state->flattened);
 
     // Clear screen
     SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
@@ -1784,11 +1818,7 @@ void band_array_free(BandArray* arr) {
 }
 
 void band_array_add(BandArray* arr, Band band) {
-    if (arr->length >= arr->capacity) {
-        size_t new_capacity = arr->capacity * 2;
-        arr->ptr = (Band*)realloc(arr->ptr, new_capacity * sizeof(Band));
-        arr->capacity = new_capacity;
-    }
+    assert(arr->length < arr->capacity);  // Fixed size - cannot grow
     arr->ptr[arr->length++] = band;
 }
 
@@ -1827,14 +1857,14 @@ void band_array_insert(BandArray* arr, size_t index, Band band) {
     arr->length++;
 }
 
-void band_array_copy_after(BandArray* arr, size_t index, LabelBuffer* lb) {
+void band_array_copy_after(BandArray* arr, size_t index, LabelArray* lb) {
     if (index >= arr->length) return;
 
     Band original = arr->ptr[index];
     Band copy = original;
 
     // Allocate new label and copy text
-    copy.label = label_buffer_allocate_string(lb, original.label);
+    copy.label = label_array_allocate_string(lb, original.label);
 
     // Calculate size once and preserve it
     float size = original.interval.end - original.interval.start;
@@ -1846,7 +1876,7 @@ void band_array_copy_after(BandArray* arr, size_t index, LabelBuffer* lb) {
     band_array_insert(arr, index + 1, copy);
 }
 
-void band_array_split(BandArray* arr, size_t index, LabelBuffer* lb) {
+void band_array_split(BandArray* arr, size_t index, LabelArray* lb) {
     if (index >= arr->length) return;
 
     Band* original = &arr->ptr[index];
@@ -1854,7 +1884,7 @@ void band_array_split(BandArray* arr, size_t index, LabelBuffer* lb) {
 
     // Create second half band
     Band second_half = *original;
-    second_half.label = label_buffer_allocate_string(lb, original->label);  // Copy label
+    second_half.label = label_array_allocate_string(lb, original->label);  // Copy label
     second_half.interval.start = midpoint;
     second_half.follow_previous = true;  // Second half follows the first half
 
@@ -1943,7 +1973,7 @@ void add_random_band(AppState* state) {
         .kind = BAND_CLOSED,  // Default to closed band
         .line_kind = KIND_WAVE,  // Default to wave
         .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
-        .label = label_buffer_allocate(&state->label_buffer),  // Empty label
+        .label = label_array_allocate(&state->work.labels),  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .label_anchor = LABEL_BOTTOM_RIGHT,  // Default label anchor
@@ -1952,7 +1982,7 @@ void add_random_band(AppState* state) {
         .follow_previous = false
     };
 
-    band_array_add(&state->bands, new_band);
+    band_array_add(&state->work.bands, new_band);
 }
 
 void add_open_band(AppState* state) {
@@ -1971,7 +2001,7 @@ void add_open_band(AppState* state) {
         .kind = BAND_OPEN,  // Will be set automatically when start >= end
         .line_kind = KIND_WAVE,  // Default to wave
         .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
-        .label = label_buffer_allocate(&state->label_buffer),  // Empty label
+        .label = label_array_allocate(&state->work.labels),  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1980,93 +2010,93 @@ void add_open_band(AppState* state) {
         .label_offset = {0, 0}  // No offset
     };
 
-    band_array_add(&state->bands, new_band);
+    band_array_add(&state->work.bands, new_band);
 }
 
 void init_bands_backend(AppState* state) {
-  band_array_clear(&state->bands);
-  state->label_buffer.size = 0;
-  memset(state->label_buffer.ptr, 0, state->label_buffer.capacity * 32);
+  band_array_clear(&state->work.bands);
+  state->work.labels.count = 0;
+  memset(state->work.labels.ptr, 0, state->work.labels.capacity * 32);
 
   // Band array initialization code:
-  band_array_add(&state->bands, (Band){
+  band_array_add(&state->work.bands, (Band){
       .interval = {.start = 0.40f, .end = 9.70f},
       .stride = 1.00f,
       .repeat = 0,
       .kind = BAND_CLOSED,
       .line_kind = KIND_WAVE,
       .color = {.lightness = 0.70f, .chroma = 0.25f, .hue = 247.0f},
-      .label = label_buffer_allocate_string(&state->label_buffer, "DB"),
+      .label = label_array_allocate_string(&state->work.labels, "DB"),
       .wavelength_scale = 4,
       .wave_inverted = true,
       .wave_half_period = false,
       .follow_previous = false
       });
 
-  band_array_add(&state->bands, (Band){
+  band_array_add(&state->work.bands, (Band){
       .interval = {.start = 1.30f, .end = 5.20f},
       .stride = 1.00f,
       .repeat = 0,
       .kind = BAND_CLOSED,
       .line_kind = KIND_WAVE,
       .color = {.lightness = 0.70f, .chroma = 0.17f, .hue = 158.0f},
-      .label = label_buffer_allocate_string(&state->label_buffer, "Schema V1"),
+      .label = label_array_allocate_string(&state->work.labels, "Schema V1"),
       .wavelength_scale = 3,
       .wave_inverted = false,
       .wave_half_period = false,
       .follow_previous = false
       });
 
-  band_array_add(&state->bands, (Band){
+  band_array_add(&state->work.bands, (Band){
       .interval = {.start = 5.20f, .end = 9.10f},
       .stride = 1.00f,
       .repeat = 0,
       .kind = BAND_CLOSED,
       .line_kind = KIND_WAVE,
       .color = {.lightness = 0.70f, .chroma = 0.17f, .hue = 158.0f},
-      .label = label_buffer_allocate_string(&state->label_buffer, "Schema V2"),
+      .label = label_array_allocate_string(&state->work.labels, "Schema V2"),
       .wavelength_scale = 3,
       .wave_inverted = false,
       .wave_half_period = false,
       .follow_previous = true
       });
 
-  band_array_add(&state->bands, (Band){
+  band_array_add(&state->work.bands, (Band){
       .interval = {.start = 1.90f, .end = 5.67f},
       .stride = 1.00f,
       .repeat = 0,
       .kind = BAND_CLOSED,
       .line_kind = KIND_WAVE,
       .color = {.lightness = 0.70f, .chroma = 0.34f, .hue = 327.0f},
-      .label = label_buffer_allocate_string(&state->label_buffer, "App V1"),
+      .label = label_array_allocate_string(&state->work.labels, "App V1"),
       .wavelength_scale = 4,
       .wave_inverted = false,
       .wave_half_period = false,
       .follow_previous = false
       });
 
-  band_array_add(&state->bands, (Band){
+  band_array_add(&state->work.bands, (Band){
       .interval = {.start = 5.67f, .end = 8.60f},
       .stride = 1.00f,
       .repeat = 0,
       .kind = BAND_CLOSED,
       .line_kind = KIND_WAVE,
       .color = {.lightness = 0.70f, .chroma = 0.34f, .hue = 327.0f},
-      .label = label_buffer_allocate_string(&state->label_buffer, "App V2"),
+      .label = label_array_allocate_string(&state->work.labels, "App V2"),
       .wavelength_scale = 4,
       .wave_inverted = false,
       .wave_half_period = false,
       .follow_previous = true
       });
 
-  band_array_add(&state->bands, (Band){
+  band_array_add(&state->work.bands, (Band){
       .interval = {.start = 4.80f, .end = 4.80f},
       .stride = 1.00f,
       .repeat = 0,
       .kind = BAND_OPEN,
       .line_kind = KIND_SHARP,
       .color = {.lightness = 1.00f, .chroma = 0.21f, .hue = 68.0f},
-      .label = label_buffer_allocate_string(&state->label_buffer, "Release"),
+      .label = label_array_allocate_string(&state->work.labels, "Release"),
       .wavelength_scale = 4,
       .wave_inverted = false,
       .wave_half_period = true,
@@ -2077,131 +2107,131 @@ void init_bands_backend(AppState* state) {
 }
 
 void init_bands_backend2(AppState* state) {
-  band_array_clear(&state->bands);
-  state->label_buffer.size = 0;
-  memset(state->label_buffer.ptr, 0, state->label_buffer.capacity * 32);
+  band_array_clear(&state->work.bands);
+  state->work.labels.count = 0;
+  memset(state->work.labels.ptr, 0, state->work.labels.capacity * 32);
 
   // Band array initialization code:
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 0.40f, .end = 9.70f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.25f, .hue = 247.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "DB"),
+    .label = label_array_allocate_string(&state->work.labels, "DB"),
     .wavelength_scale = 4,
     .wave_inverted = true,
     .wave_half_period = false,
     .follow_previous = false
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 1.30f, .end = 4.15f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.17f, .hue = 158.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "Schema V1"),
+    .label = label_array_allocate_string(&state->work.labels, "Schema V1"),
     .wavelength_scale = 3,
     .wave_inverted = false,
     .wave_half_period = false,
     .follow_previous = false
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 4.15f, .end = 7.00f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.17f, .hue = 158.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "Schema V1"),
+    .label = label_array_allocate_string(&state->work.labels, "Schema V1"),
     .wavelength_scale = 3,
     .wave_inverted = false,
     .wave_half_period = false,
     .follow_previous = true
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 7.00f, .end = 9.10f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.17f, .hue = 158.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "Schema V2"),
+    .label = label_array_allocate_string(&state->work.labels, "Schema V2"),
     .wavelength_scale = 3,
     .wave_inverted = false,
     .wave_half_period = false,
     .follow_previous = true
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 1.90f, .end = 4.64f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.34f, .hue = 327.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "App V1"),
+    .label = label_array_allocate_string(&state->work.labels, "App V1"),
     .wavelength_scale = 4,
     .wave_inverted = false,
     .wave_half_period = false,
     .follow_previous = false
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 4.64f, .end = 7.37f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 1.00f, .chroma = 0.30f, .hue = 308.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "App V1.5"),
+    .label = label_array_allocate_string(&state->work.labels, "App V1.5"),
     .wavelength_scale = 4,
     .wave_inverted = false,
     .wave_half_period = false,
     .follow_previous = true
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 7.37f, .end = 8.60f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.34f, .hue = 327.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "App V2"),
+    .label = label_array_allocate_string(&state->work.labels, "App V2"),
     .wavelength_scale = 4,
     .wave_inverted = false,
     .wave_half_period = false,
     .follow_previous = true
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 3.60f, .end = 3.60f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_OPEN,
     .line_kind = KIND_SHARP,
     .color = {.lightness = 1.00f, .chroma = 0.21f, .hue = 68.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "Release"),
+    .label = label_array_allocate_string(&state->work.labels, "Release"),
     .wavelength_scale = 4,
     .wave_inverted = false,
     .wave_half_period = true,
     .follow_previous = false
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 6.65f, .end = 6.65f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_OPEN,
     .line_kind = KIND_SHARP,
     .color = {.lightness = 1.00f, .chroma = 0.21f, .hue = 68.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "Release2"),
+    .label = label_array_allocate_string(&state->work.labels, "Release2"),
     .wavelength_scale = 4,
     .wave_inverted = false,
     .wave_half_period = true,
@@ -2212,116 +2242,116 @@ band_array_add(&state->bands, (Band){
 }
 
 void init_bands_backend3(AppState* state) {
-  band_array_clear(&state->bands);
-  state->label_buffer.size = 0;
-  memset(state->label_buffer.ptr, 0, state->label_buffer.capacity * 32);
+  band_array_clear(&state->work.bands);
+  state->work.labels.count = 0;
+  memset(state->work.labels.ptr, 0, state->work.labels.capacity * 32);
 // Band array initialization code:
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 0.50f, .end = 3.20f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.27f, .hue = 113.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "Schema v1"),
+    .label = label_array_allocate_string(&state->work.labels, "Schema v1"),
     .wavelength_scale = 3,
     .wave_inverted = false,
     .wave_half_period = false,
     .follow_previous = false
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 3.20f, .end = 5.90f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.27f, .hue = 113.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "Schema v1"),
+    .label = label_array_allocate_string(&state->work.labels, "Schema v1"),
     .wavelength_scale = 3,
     .wave_inverted = false,
     .wave_half_period = false,
     .follow_previous = true
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 5.90f, .end = 8.60f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.27f, .hue = 113.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "Schema v2"),
+    .label = label_array_allocate_string(&state->work.labels, "Schema v2"),
     .wavelength_scale = 1,
     .wave_inverted = false,
     .wave_half_period = false,
     .follow_previous = true
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 1.00f, .end = 3.65f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.29f, .hue = 222.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "App v1"),
+    .label = label_array_allocate_string(&state->work.labels, "App v1"),
     .wavelength_scale = 3,
     .wave_inverted = true,
     .wave_half_period = false,
     .follow_previous = false
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 3.65f, .end = 6.30f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.29f, .hue = 224.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "App v2"),
+    .label = label_array_allocate_string(&state->work.labels, "App v2"),
     .wavelength_scale = 2,
     .wave_inverted = true,
     .wave_half_period = true,
     .follow_previous = true
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 6.30f, .end = 8.95f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_CLOSED,
     .line_kind = KIND_WAVE,
     .color = {.lightness = 0.70f, .chroma = 0.29f, .hue = 221.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "App v2"),
+    .label = label_array_allocate_string(&state->work.labels, "App v2"),
     .wavelength_scale = 2,
     .wave_inverted = true,
     .wave_half_period = true,
     .follow_previous = true
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 2.55f, .end = 2.55f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_OPEN,
     .line_kind = KIND_DOUBLE,
     .color = {.lightness = 0.59f, .chroma = 0.01f, .hue = 176.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "Release 1"),
+    .label = label_array_allocate_string(&state->work.labels, "Release 1"),
     .wavelength_scale = 1,
     .wave_inverted = false,
     .wave_half_period = false,
     .follow_previous = false
 });
 
-band_array_add(&state->bands, (Band){
+band_array_add(&state->work.bands, (Band){
     .interval = {.start = 5.50f, .end = 5.50f},
     .stride = 1.00f,
     .repeat = 0,
     .kind = BAND_OPEN,
     .line_kind = KIND_SHARP,
     .color = {.lightness = 0.61f, .chroma = 0.01f, .hue = 306.0f},
-    .label = label_buffer_allocate_string(&state->label_buffer, "Release 2"),
+    .label = label_array_allocate_string(&state->work.labels, "Release 2"),
     .wavelength_scale = 1,
     .wave_inverted = false,
     .wave_half_period = false,
@@ -2334,22 +2364,22 @@ band_array_add(&state->bands, (Band){
 
 void init_bands_week(AppState* state) {
     // Clear existing bands and reset label buffer
-    band_array_clear(&state->bands);
-    state->label_buffer.size = 0;  // Reset label buffer to reclaim all slots
-    memset(state->label_buffer.ptr, 0, state->label_buffer.capacity * 32);  // Clear all label memory
+    band_array_clear(&state->work.bands);
+    state->work.labels.count = 0;  // Reset label buffer to reclaim all slots
+    memset(state->work.labels.ptr, 0, state->work.labels.capacity * 32);  // Clear all label memory
 
     // Using OKLCH for harmonious colors:
     // L=0.6 for medium brightness, varying chroma and hue for different bands
 
     // Purple wave band
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.5f, .chroma = 0.15f, .hue = 280.0f},
-        .label = label_buffer_allocate_string(&state->label_buffer, "Purple"),
+        .label = label_array_allocate_string(&state->work.labels, "Purple"),
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -2357,14 +2387,14 @@ void init_bands_week(AppState* state) {
     });
 
     // Gray wave band
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.45f, .chroma = 0.02f, .hue = 0.0f},
-        .label = label_buffer_allocate_string(&state->label_buffer, "Gray"),
+        .label = label_array_allocate_string(&state->work.labels, "Gray"),
         .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -2372,14 +2402,14 @@ void init_bands_week(AppState* state) {
     });
 
     // Blue wave band
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = -0.7f, .end = 0.3f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
         .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.7f, .chroma = 0.18f, .hue = 230.0f},
-        .label = label_buffer_allocate_string(&state->label_buffer, "Blue"),
+        .label = label_array_allocate_string(&state->work.labels, "Blue"),
         .wavelength_scale = 1,
         .wave_inverted = true,
         .wave_half_period = false,
@@ -2387,14 +2417,14 @@ void init_bands_week(AppState* state) {
     });
 
     // Green wave band
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = -1.2f, .end = 0.8f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
         .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.2f, .hue = 150.0f},
-        .label = label_buffer_allocate_string(&state->label_buffer, "Green"),
+        .label = label_array_allocate_string(&state->work.labels, "Green"),
         .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -2402,14 +2432,14 @@ void init_bands_week(AppState* state) {
     });
 
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = 0.2f, .end = 0.7f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
         .kind = BAND_CLOSED,
         .line_kind = KIND_DOUBLE,
         .color = {.lightness = 0.65f, .chroma = 0.15f, .hue = 40.0f},
-        .label = label_buffer_allocate(&state->label_buffer),  // No label
+        .label = label_array_allocate(&state->work.labels),  // No label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -2417,14 +2447,14 @@ void init_bands_week(AppState* state) {
     });
 
     // Sequence 3: 5 squares of size 0.5 (0.2-0.7, 1.2-1.7, ...)
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = 7.2f, .end = 7.7f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 4,     // 5 total intervals
         .kind = BAND_CLOSED,
         .line_kind = KIND_DOUBLE,
         .color = {.lightness = 0.65f, .chroma = 0.15f, .hue = 40.0f},
-        .label = label_buffer_allocate(&state->label_buffer),  // No label
+        .label = label_array_allocate(&state->work.labels),  // No label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -2432,14 +2462,14 @@ void init_bands_week(AppState* state) {
     });
 
     // Sequence 4: single square at 6.6-8.7
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = 4.6f, .end = 8.2f},
         .stride = 0.0f,  // No stride needed for single square
         .repeat = 0,     // Single interval
         .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.7f, .chroma = 0.1f, .hue = 120.0f},
-        .label = label_buffer_allocate(&state->label_buffer),  // No label
+        .label = label_array_allocate(&state->work.labels),  // No label
         .wavelength_scale = 1,  // Start with 2^1 = 2x wavelength
         .wave_inverted = false,  // Start with normal phase
         .wave_half_period = false,  // Start with full periods
@@ -2449,59 +2479,59 @@ void init_bands_week(AppState* state) {
 
 void init_bands_tz(AppState* state) {
     // Clear existing bands and reset label buffer
-    band_array_clear(&state->bands);
-    state->label_buffer.size = 0;  // Reset label buffer to reclaim all slots
-    memset(state->label_buffer.ptr, 0, state->label_buffer.capacity * 32);  // Clear all label memory
+    band_array_clear(&state->work.bands);
+    state->work.labels.count = 0;  // Reset label buffer to reclaim all slots
+    memset(state->work.labels.ptr, 0, state->work.labels.capacity * 32);  // Clear all label memory
 
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = 0.0f, .end = 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.0f, .hue = 0.0f},
-        .label = label_buffer_allocate_string(&state->label_buffer, "TZ Gray"),
+        .label = label_array_allocate_string(&state->work.labels, "TZ Gray"),
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
     });
 
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = -3.0f/24.0f, .end = -3.0f/24.0f + 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 100,     // 10 total intervals
         .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.1f, .hue = 285.0f},
-        .label = label_buffer_allocate_string(&state->label_buffer, "TZ Purple"),
+        .label = label_array_allocate_string(&state->work.labels, "TZ Purple"),
         .wavelength_scale = 2,
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false
     });
 
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = 3.0f/24.f, .end = 3.0f/24.f + 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 50,     // 8 total intervals
         .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.15f, .hue = 210.0f},
-        .label = label_buffer_allocate_string(&state->label_buffer, "TZ Blue"),
+        .label = label_array_allocate_string(&state->work.labels, "TZ Blue"),
         .wavelength_scale = 2,
         .wave_inverted = true,
         .wave_half_period = false
     });
 
-    band_array_add(&state->bands, (Band){
+    band_array_add(&state->work.bands, (Band){
         .interval = {.start = 8.0f/24.f, .end = 8.0f/24.f + 1.0f},
         .stride = 1.0f,  // Unit spacing
         .repeat = 25,     // 8 total intervals
         .kind = BAND_CLOSED,
         .line_kind = KIND_WAVE,
         .color = {.lightness = 0.75f, .chroma = 0.25f, .hue = 160.0f},
-        .label = label_buffer_allocate_string(&state->label_buffer, "TZ Green"),
+        .label = label_array_allocate_string(&state->work.labels, "TZ Green"),
         .wavelength_scale = 3,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -2511,9 +2541,9 @@ void init_bands_tz(AppState* state) {
 
 void init_bands_rand(AppState* state) {
     // Clear existing bands and reset label buffer
-    band_array_clear(&state->bands);
-    state->label_buffer.size = 0;  // Reset label buffer to reclaim all slots
-    memset(state->label_buffer.ptr, 0, state->label_buffer.capacity * 32);  // Clear all label memory
+    band_array_clear(&state->work.bands);
+    state->work.labels.count = 0;  // Reset label buffer to reclaim all slots
+    memset(state->work.labels.ptr, 0, state->work.labels.capacity * 32);  // Clear all label memory
 
     // Add a single random band
     add_random_band(state);
@@ -2525,9 +2555,9 @@ void print_bands_as_code(AppState* state) {
 
     string_append(sb, "// Band array initialization code:\n");
 
-    for (size_t i = 0; i < state->bands.length; i++) {
-        Band* band = &state->bands.ptr[i];
-        string_append(sb, "band_array_add(&state->bands, (Band){\n");
+    for (size_t i = 0; i < state->work.bands.length; i++) {
+        Band* band = &state->work.bands.ptr[i];
+        string_append(sb, "band_array_add(&state->work.bands, (Band){\n");
         string_append(sb, "    .interval = {.start = %.2ff, .end = %.2ff},\n",
                      band->interval.start, band->interval.end);
         string_append(sb, "    .stride = %.2ff,\n", band->stride);
@@ -2541,13 +2571,13 @@ void print_bands_as_code(AppState* state) {
         string_append(sb, "    .color = {.lightness = %.2ff, .chroma = %.2ff, .hue = %.1ff},\n",
                      band->color.lightness, band->color.chroma, band->color.hue);
 
-        // Handle label - if it's empty or default, use label_buffer_allocate, otherwise use the string
+        // Handle label - if it's empty or default, use label_array_allocate, otherwise use the string
         if (band->label && strlen(band->label) > 0 &&
             !(strlen(band->label) == 1 && band->label[0] >= 'A' && band->label[0] <= 'Z')) {
-            string_append(sb, "    .label = label_buffer_allocate_string(&state->label_buffer, \"%s\"),\n",
+            string_append(sb, "    .label = label_array_allocate_string(&state->work.labels, \"%s\"),\n",
                          band->label);
         } else {
-            string_append(sb, "    .label = label_buffer_allocate(&state->label_buffer),\n");
+            string_append(sb, "    .label = label_array_allocate(&state->work.labels),\n");
         }
 
         string_append(sb, "    .wavelength_scale = %d,\n", band->wavelength_scale);
@@ -2603,10 +2633,12 @@ int main(int argc, char* argv[]) {
     state.sliver_camera.offset = 0.0f;  // Start at 0
     state.sliver_camera.scale = 0.1f;   // Scale 1:1 shows full 0-1 in viewport, which maps to 0-10 in our coordinates
 
-    // Initialize dynamic arrays and buffers
-    band_array_init(&state.bands, 10);
-    band_array_init(&state.flattened, 50);  // Flattened bands instead of squares
-    label_buffer_init(&state.label_buffer);
+    // Initialize work (bands and labels in single arena)
+    work_init(&state.work, 128, 128);  // 128 bands, 128 labels
+
+    // Initialize flattened array separately (dynamic, not part of work)
+    band_array_init(&state.flattened, 128*100);  // Large capacity for flattened bands
+
     string_builder_init(&state.string_builder);
 
     // Create window with HiDPI support (from ../sd)
@@ -2940,7 +2972,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Cleanup
-    band_array_free(&state.bands);
+    work_free(&state.work);
     band_array_free(&state.flattened);
     render_context_free(&state.render_ctx);
     if (state.font) {
