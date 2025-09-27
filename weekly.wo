@@ -1,0 +1,113 @@
+WORK SLIVER 0001
+{
+  type: band
+  interval: 0.000000 1.000000
+  stride: 1.000000
+  repeat: 100
+  kind: CLOSED
+  line_kind: WAVE
+  color: 280.000000 0.500000 0.150000
+  label: "Purple"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 0.000000 1.000000
+  stride: 1.000000
+  repeat: 100
+  kind: CLOSED
+  line_kind: WAVE
+  color: 0.000000 0.450000 0.020000
+  label: "Gray"
+  wavelength_scale: 3
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: -0.700000 0.300000
+  stride: 1.000000
+  repeat: 50
+  kind: CLOSED
+  line_kind: WAVE
+  color: 230.000000 0.700000 0.180000
+  label: "Blue"
+  wavelength_scale: 1
+  wave_inverted: true
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: -1.200000 0.800000
+  stride: 1.000000
+  repeat: 25
+  kind: CLOSED
+  line_kind: WAVE
+  color: 150.000000 0.750000 0.200000
+  label: "Green"
+  wavelength_scale: 3
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 0.200000 0.700000
+  stride: 1.000000
+  repeat: 4
+  kind: CLOSED
+  line_kind: DOUBLE
+  color: 40.000000 0.650000 0.150000
+  label: "E"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 7.200000 7.700000
+  stride: 1.000000
+  repeat: 4
+  kind: CLOSED
+  line_kind: DOUBLE
+  color: 40.000000 0.650000 0.150000
+  label: "F"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 4.600000 8.200000
+  stride: 0.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 120.000000 0.700000 0.100000
+  label: "G"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}

@@ -1,0 +1,65 @@
+WORK SLIVER 0001
+{
+  type: band
+  interval: 0.000000 1.000000
+  stride: 1.000000
+  repeat: 100
+  kind: CLOSED
+  line_kind: WAVE
+  color: 0.000000 0.750000 0.000000
+  label: "TZ Gray"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: -0.125000 0.875000
+  stride: 1.000000
+  repeat: 100
+  kind: CLOSED
+  line_kind: WAVE
+  color: 285.000000 0.750000 0.100000
+  label: "TZ Purple"
+  wavelength_scale: 2
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 0.125000 1.125000
+  stride: 1.000000
+  repeat: 50
+  kind: CLOSED
+  line_kind: WAVE
+  color: 210.000000 0.750000 0.150000
+  label: "TZ Blue"
+  wavelength_scale: 2
+  wave_inverted: true
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 0.333333 1.333333
+  stride: 1.000000
+  repeat: 25
+  kind: CLOSED
+  line_kind: WAVE
+  color: 160.000000 0.750000 0.250000
+  label: "TZ Green"
+  wavelength_scale: 3
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}

@@ -1,0 +1,129 @@
+WORK SLIVER 0001
+{
+  type: band
+  interval: 0.500000 3.200000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 113.000000 0.700000 0.270000
+  label: "Schema v1"
+  wavelength_scale: 3
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 3.200000 5.900000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 113.000000 0.700000 0.270000
+  label: "Schema v1"
+  wavelength_scale: 3
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: true
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 5.900000 8.600000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 113.000000 0.700000 0.270000
+  label: "Schema v2"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: true
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 1.000000 3.650000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 222.000000 0.700000 0.290000
+  label: "App v1"
+  wavelength_scale: 3
+  wave_inverted: true
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 3.650000 6.300000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 224.000000 0.700000 0.290000
+  label: "App v2"
+  wavelength_scale: 2
+  wave_inverted: true
+  wave_half_period: true
+  follow_previous: true
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 6.300000 8.950000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 221.000000 0.700000 0.290000
+  label: "App v2"
+  wavelength_scale: 2
+  wave_inverted: true
+  wave_half_period: true
+  follow_previous: true
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 2.550000 2.550000
+  stride: 1.000000
+  repeat: 0
+  kind: OPEN
+  line_kind: DOUBLE
+  color: 176.000000 0.590000 0.010000
+  label: "Release 1"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 5.500000 5.500000
+  stride: 1.000000
+  repeat: 0
+  kind: OPEN
+  line_kind: SHARP
+  color: 306.000000 0.610000 0.010000
+  label: "Release 2"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}

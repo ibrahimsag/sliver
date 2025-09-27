@@ -1,0 +1,145 @@
+WORK SLIVER 0001
+{
+  type: band
+  interval: -0.500000 4.530000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 301.000000 0.700000 0.160000
+  label: "API v0"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 4.530000 21.020000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 301.000000 0.700000 0.160000
+  label: "API v0+v1"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: true
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: -0.870000 9.030000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 235.000000 0.700000 0.160000
+  label: "DATA v0"
+  wavelength_scale: 4
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 9.030000 10.720000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 235.000000 0.700000 0.160000
+  label: "DATA v0.5 n"
+  wavelength_scale: 4
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: true
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 10.720000 14.650000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 235.000000 0.700000 0.160000
+  label: "DATA v1"
+  wavelength_scale: 4
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: true
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 0.360000 5.180000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 172.000000 0.700000 0.280000
+  label: "Client v0"
+  wavelength_scale: 3
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 5.180000 19.520000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 172.000000 0.700000 0.280000
+  label: "Client v0+v1"
+  wavelength_scale: 3
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: true
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 8.100000 8.100000
+  stride: 1.000000
+  repeat: 0
+  kind: OPEN
+  line_kind: SHARP
+  color: 127.000000 0.700000 0.310000
+  label: "Switch Feature Flag"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
+{
+  type: band
+  interval: 10.840000 10.840000
+  stride: 1.000000
+  repeat: 0
+  kind: OPEN
+  line_kind: SHARP
+  color: 318.000000 0.700000 0.310000
+  label: "Backfill"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+}
