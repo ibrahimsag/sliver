@@ -21,6 +21,8 @@
 #define CORNER_RADIUS 30
 #define HIGHLIGHT_SIZE 12
 
+#define WORK_FILE_VERSION 1
+
 // Edge visibility flags for culling
 #define EDGE_TOP    (1 << 0)  // 0x01
 #define EDGE_RIGHT  (1 << 1)  // 0x02
@@ -1575,7 +1577,7 @@ void work_save(Work* work, const char* filename) {
     strncpy(work->filename, filename, 255);
     work->filename[255] = '\0';
 
-    fprintf(file, "WORK SLIVER 0001\n");
+    fprintf(file, "WORK SLIVER %04d\n", WORK_FILE_VERSION);
 
     for (size_t i = 0; i < work->bands.length; i++) {
         Band* band = &work->bands.ptr[i];
@@ -1612,6 +1614,19 @@ bool work_load(Work* work, const char* filename) {
     char line[512];
     if (!fgets(line, sizeof(line), file) || strncmp(line, "WORK SLIVER", 11) != 0) {
         printf("Invalid file format\n");
+        fclose(file);
+        return false;
+    }
+
+    int version;
+    if (sscanf(line, "WORK SLIVER %d", &version) != 1) {
+        printf("Invalid file format: missing version\n");
+        fclose(file);
+        return false;
+    }
+
+    if (version > WORK_FILE_VERSION) {
+        printf("Unsupported file version: %d (expected <= %d)\n", version, WORK_FILE_VERSION);
         fclose(file);
         return false;
     }
