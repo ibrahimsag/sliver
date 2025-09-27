@@ -1688,13 +1688,6 @@ bool work_load(Work* work, const char* filename) {
 Layout draw_work_ui(AppState* state, Layout layout) {
     V2 button_size = {80, 25};
 
-    // Show modified indicator
-    if (work_is_modified(state->work)) {
-        SDL_Color modified_color = {255, 200, 100, 255};
-        render_text(state, "*", layout.next, modified_color);
-    }
-    advance_horizontal(&layout, 20);
-
     // Work navigation and management buttons
     V2 nav_button_size = {30, 25};
     if (render_button(state, "<", layout.next, nav_button_size, false)) {
@@ -1722,8 +1715,30 @@ Layout draw_work_ui(AppState* state, Layout layout) {
     }
     advance_horizontal(&layout, button_size.x + 10);
 
+    if (render_button(state, "Load", layout.next, button_size, false)) {
+        state->ui_state.shelf_mode_save = false;
+        state->ui_state.step = UI_SHELF;
+    }
+
+    advance_vertical(&layout, 30);
+
+    if (render_button(state, "Store", layout.next, button_size, false)) {
+        if (state->work->filename[0] != '\0') {
+            strncpy(state->ui_state.suggested_filename, state->work->filename, 255);
+            state->ui_state.suggested_filename[255] = '\0';
+        } else {
+            time_t now = time(NULL);
+            struct tm *tm_info = localtime(&now);
+            strftime(state->ui_state.suggested_filename, sizeof(state->ui_state.suggested_filename), "work_%Y-%m-%d_%H-%M-%S.wo", tm_info);
+        }
+        state->ui_state.shelf_mode_save = true;
+        state->ui_state.step = UI_SHELF;
+    }
+    advance_horizontal(&layout, button_size.x + 10);
+
     if (render_button(state, "Copy", layout.next, button_size, false)) {
         Work* copied = work_copy(state->work);
+        copied->filename[0] = '\0';
         copied->prev = state->work;
         copied->next = state->work->next;
         if (state->work->next) state->work->next->prev = copied;
@@ -1745,24 +1760,16 @@ Layout draw_work_ui(AppState* state, Layout layout) {
     }
     advance_horizontal(&layout, button_size.x + 10);
 
-    if (render_button(state, "Store", layout.next, button_size, false)) {
-        if (state->work->filename[0] != '\0') {
-            strncpy(state->ui_state.suggested_filename, state->work->filename, 255);
-            state->ui_state.suggested_filename[255] = '\0';
-        } else {
-            time_t now = time(NULL);
-            struct tm *tm_info = localtime(&now);
-            strftime(state->ui_state.suggested_filename, sizeof(state->ui_state.suggested_filename), "work_%Y-%m-%d_%H-%M-%S.wo", tm_info);
-        }
-        state->ui_state.shelf_mode_save = true;
-        state->ui_state.step = UI_SHELF;
+    // Show modified indicator and filename
+    SDL_Color white = {255, 255, 255, 255};
+    SDL_Color modified_color = {255, 200, 100, 255};
+    if (work_is_modified(state->work)) {
+        render_text(state, "*", layout.next, modified_color);
     }
-    advance_horizontal(&layout, button_size.x + 10);
+    advance_horizontal(&layout, 20);
 
-    if (render_button(state, "Load", layout.next, button_size, false)) {
-        state->ui_state.shelf_mode_save = false;
-        state->ui_state.step = UI_SHELF;
-    }
+    const char* display_name = state->work->filename[0] != '\0' ? state->work->filename : "(unsaved)";
+    render_text(state, display_name, layout.next, work_is_modified(state->work) ? modified_color : white);
 
     advance_vertical(&layout, 30);
 
