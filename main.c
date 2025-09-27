@@ -97,6 +97,15 @@ typedef enum {
     UI_SHELF = 1
 } UIStep;
 
+typedef enum {
+    INPUT_NONE = 0,
+    INPUT_DISABLED = 1,
+    INPUT_HIGHLIGHTED = 2
+} InputFlags;
+
+#define DISABLED(b) ((b) ? INPUT_DISABLED : INPUT_NONE)
+#define HIGHLIGHTED(b) ((b) ? INPUT_HIGHLIGHTED : INPUT_NONE)
+
 typedef struct {
     UIStep step;
     bool shelf_mode_save;
@@ -837,7 +846,7 @@ int render_anchor_buttons(AppState* state, V2 position, float size, LabelAnchor 
 }
 
 // Simple immediate mode button
-bool render_button(AppState* state, const char* text, V2 position, V2 size, bool active) {
+bool render_button(AppState* state, const char* text, V2 position, V2 size, InputFlags flags) {
     SDL_Rect button_rect = {
         (int)position.x,
         (int)position.y,
@@ -845,12 +854,17 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, bool
         (int)size.y
     };
 
+    bool disabled = (flags == INPUT_DISABLED);
+    bool highlighted = (flags == INPUT_HIGHLIGHTED);
+
     // Check if mouse is over button
-    bool hover = state->mouse_pos.x >= button_rect.x && state->mouse_pos.x < button_rect.x + button_rect.w &&
+    bool hover = !disabled && state->mouse_pos.x >= button_rect.x && state->mouse_pos.x < button_rect.x + button_rect.w &&
                  state->mouse_pos.y >= button_rect.y && state->mouse_pos.y < button_rect.y + button_rect.h;
 
     // Draw button background
-    if (active) {
+    if (disabled) {
+        SDL_SetRenderDrawColor(state->renderer, 35, 35, 38, 255);
+    } else if (highlighted) {
         SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
     } else if (hover) {
         SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
@@ -875,13 +889,13 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, bool
         TTF_SizeText(state->font, text, &text_w, &text_h);
         text_pos.x -= (text_w / 2) / 2.0f;  // Adjust for supersampling
 
-        SDL_Color text_color = active ? (SDL_Color){255, 255, 255, 255} : (SDL_Color){200, 200, 200, 255};
+        SDL_Color text_color = disabled ? (SDL_Color){100, 100, 100, 255} : (SDL_Color){200, 200, 200, 255};
         render_text(state, text, text_pos, text_color);
     }
 
     // Return true if button was clicked (mouse was pressed last frame, not pressed this frame, and hovering)
     // But not if we're dragging an input field
-    return hover && !state->mouse_pressed && state->mouse_was_pressed && !state->dragging_input_field;
+    return !disabled && hover && !state->mouse_pressed && state->mouse_was_pressed && !state->dragging_input_field;
 }
 
 // Full version of input field with disabled option and custom scale
@@ -1690,14 +1704,14 @@ Layout draw_work_ui(AppState* state, Layout layout) {
 
     // Work navigation and management buttons
     V2 nav_button_size = {30, 25};
-    if (render_button(state, "<", layout.next, nav_button_size, false)) {
+    if (render_button(state, "<", layout.next, nav_button_size, DISABLED(!state->work->prev))) {
         if (state->work->prev) {
             state->work = state->work->prev;
         }
     }
     advance_horizontal(&layout, nav_button_size.x + 5);
 
-    if (render_button(state, ">", layout.next, nav_button_size, false)) {
+    if (render_button(state, ">", layout.next, nav_button_size, DISABLED(!state->work->next))) {
         if (state->work->next) {
             state->work = state->work->next;
         }
@@ -1705,7 +1719,7 @@ Layout draw_work_ui(AppState* state, Layout layout) {
     advance_horizontal(&layout, nav_button_size.x + 10);
 
     // Work preset buttons
-    if (render_button(state, "New", layout.next, button_size, false)) {
+    if (render_button(state, "New", layout.next, button_size, INPUT_NONE)) {
         Work* new_work = work_new(128, 128);
         new_work->prev = state->work;
         new_work->next = state->work->next;
@@ -1715,14 +1729,14 @@ Layout draw_work_ui(AppState* state, Layout layout) {
     }
     advance_horizontal(&layout, button_size.x + 10);
 
-    if (render_button(state, "Load", layout.next, button_size, false)) {
+    if (render_button(state, "Load", layout.next, button_size, INPUT_NONE)) {
         state->ui_state.shelf_mode_save = false;
         state->ui_state.step = UI_SHELF;
     }
 
     advance_vertical(&layout, 30);
 
-    if (render_button(state, "Store", layout.next, button_size, false)) {
+    if (render_button(state, "Store", layout.next, button_size, INPUT_NONE)) {
         if (state->work->filename[0] != '\0') {
             strncpy(state->ui_state.suggested_filename, state->work->filename, 255);
             state->ui_state.suggested_filename[255] = '\0';
@@ -1736,7 +1750,7 @@ Layout draw_work_ui(AppState* state, Layout layout) {
     }
     advance_horizontal(&layout, button_size.x + 10);
 
-    if (render_button(state, "Copy", layout.next, button_size, false)) {
+    if (render_button(state, "Copy", layout.next, button_size, INPUT_NONE)) {
         Work* copied = work_copy(state->work);
         copied->filename[0] = '\0';
         copied->prev = state->work;
@@ -1747,7 +1761,7 @@ Layout draw_work_ui(AppState* state, Layout layout) {
     }
     advance_horizontal(&layout, button_size.x + 10);
 
-    if (render_button(state, "Close", layout.next, button_size, false)) {
+    if (render_button(state, "Close", layout.next, button_size, INPUT_NONE)) {
         if (state->work->prev || state->work->next) {
             Work* to_close = state->work;
             if (state->work->next) {
@@ -1791,13 +1805,13 @@ Layout draw_shelf(AppState* state, Layout layout) {
         advance_vertical(&layout, 35);
 
         V2 save_button_size = {80, 25};
-        if (render_button(state, "Save", layout.next, save_button_size, false)) {
+        if (render_button(state, "Save", layout.next, save_button_size, INPUT_NONE)) {
             work_save(state->work, state->ui_state.suggested_filename);
             state->ui_state.step = UI_LENS;
         }
         advance_horizontal(&layout, save_button_size.x + 10);
 
-        if (render_button(state, "Cancel", layout.next, save_button_size, false)) {
+        if (render_button(state, "Cancel", layout.next, save_button_size, INPUT_NONE)) {
             state->ui_state.step = UI_LENS;
         }
     } else {
@@ -1811,7 +1825,7 @@ Layout draw_shelf(AppState* state, Layout layout) {
             render_text(state, "No .wo files found", layout.next, white);
         } else {
             for (size_t i = 0; i < file_list.count; i++) {
-                if (render_button(state, file_list.files[i], layout.next, button_size, false)) {
+                if (render_button(state, file_list.files[i], layout.next, button_size, INPUT_NONE)) {
                     Work* loaded = work_new(128, 128);
                     if (work_load(loaded, file_list.files[i])) {
                         loaded->prev = state->work;
@@ -1832,7 +1846,7 @@ Layout draw_shelf(AppState* state, Layout layout) {
         advance_vertical(&layout, 15);
 
         V2 cancel_button_size = {80, 25};
-        if (render_button(state, "Cancel", layout.next, cancel_button_size, false)) {
+        if (render_button(state, "Cancel", layout.next, cancel_button_size, INPUT_NONE)) {
             state->ui_state.step = UI_LENS;
         }
     }
@@ -1844,12 +1858,12 @@ Layout draw_lens(AppState* state, Layout layout) {
     V2 button_size = {80, 25};
 
     // Add band buttons
-    if (render_button(state, "+ Band", layout.next, button_size, false)) {
+    if (render_button(state, "+ Band", layout.next, button_size, INPUT_NONE)) {
         add_random_band(state);
     }
     advance_horizontal(&layout, button_size.x + 10);
 
-    if (render_button(state, "+ Open", layout.next, button_size, false)) {
+    if (render_button(state, "+ Open", layout.next, button_size, INPUT_NONE)) {
         add_open_band(state);
     }
 
@@ -1859,14 +1873,14 @@ Layout draw_lens(AppState* state, Layout layout) {
 
     // Band list navigation buttons
     V2 nav_button_size = {30, 22};
-    if (render_button(state, "Up", layout.next, nav_button_size, false)) {
+    if (render_button(state, "Up", layout.next, nav_button_size, INPUT_NONE)) {
         if (state->band_offset > 0) {
             state->band_offset--;
         }
     }
     advance_horizontal(&layout, nav_button_size.x + 5);
 
-    if (render_button(state, "Dn", layout.next, nav_button_size, false)) {
+    if (render_button(state, "Dn", layout.next, nav_button_size, INPUT_NONE)) {
         if (state->band_offset < (int)state->work->bands.length - 1) {
             state->band_offset++;
         }
@@ -1892,7 +1906,7 @@ Layout draw_lens(AppState* state, Layout layout) {
         // Add split button (S) near the right side
         V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
         V2 split_size = {25, 22};
-        if (render_button(state, "S", split_pos, split_size, false)) {
+        if (render_button(state, "S", split_pos, split_size, INPUT_NONE)) {
             band_array_split(&state->work->bands, i, &state->work->labels);
             break;  // Exit loop since array has changed
         }
@@ -1900,7 +1914,7 @@ Layout draw_lens(AppState* state, Layout layout) {
         // Add copy button (C) near the right side
         V2 copy_pos = {WINDOW_WIDTH - 50, layout.next.y + 25};
         V2 copy_size = {25, 22};
-        if (render_button(state, "C", copy_pos, copy_size, false)) {
+        if (render_button(state, "C", copy_pos, copy_size, INPUT_NONE)) {
             band_array_copy_after(&state->work->bands, i, &state->work->labels);
             break;  // Exit loop since array has changed
         }
@@ -1909,7 +1923,7 @@ Layout draw_lens(AppState* state, Layout layout) {
         V2 remove_pos = {WINDOW_WIDTH - 50, layout.next.y};
         V2 remove_size = {25, 22};
         SDL_Color red_tint = {200, 100, 100, 255};
-        if (render_button(state, "X", remove_pos, remove_size, false)) {
+        if (render_button(state, "X", remove_pos, remove_size, INPUT_NONE)) {
             band_array_remove(&state->work->bands, i);
             break;  // Exit loop since array has changed
         }
@@ -1923,7 +1937,7 @@ Layout draw_lens(AppState* state, Layout layout) {
         V2 follow_button_pos = {input_pos.x + input_size.x + 5, input_pos.y};
         V2 follow_button_size = {25, 20};
         const char* follow_text = band->follow_previous ? "^" : " ";
-        if (render_button(state, follow_text, follow_button_pos, follow_button_size, band->follow_previous)) {
+        if (render_button(state, follow_text, follow_button_pos, follow_button_size, HIGHLIGHTED(band->follow_previous))) {
             band->follow_previous = !band->follow_previous;
         }
 
@@ -1983,7 +1997,7 @@ Layout draw_lens(AppState* state, Layout layout) {
         const char* band_kind_name = (band->kind == BAND_OPEN) ? "><" : "<>";
         V2 band_kind_pos = {layout.next.x, layout.next.y};
         V2 band_kind_size = {35, 22};
-        if (render_button(state, band_kind_name, band_kind_pos, band_kind_size, false)) {
+        if (render_button(state, band_kind_name, band_kind_pos, band_kind_size, INPUT_NONE)) {
             // Toggle between BAND_CLOSED and BAND_OPEN
             band->kind = (band->kind == BAND_CLOSED) ? BAND_OPEN : BAND_CLOSED;
         }
@@ -2000,7 +2014,7 @@ Layout draw_lens(AppState* state, Layout layout) {
 
         V2 button_pos = {layout.next.x + 45, layout.next.y};
         button_size = (V2){80, 22};
-        if (render_button(state, kind_name, button_pos, button_size, false)) {
+        if (render_button(state, kind_name, button_pos, button_size, INPUT_NONE)) {
             // Cycle to next line_kind
             band->line_kind = (band->line_kind + 1) % KIND_COUNT;
         }
@@ -2010,7 +2024,7 @@ Layout draw_lens(AppState* state, Layout layout) {
             // Decrement button (decrease exponent)
             V2 dec_pos = {button_pos.x + button_size.x + 10, layout.next.y};
             V2 small_button_size = {20, 22};
-            if (render_button(state, "-", dec_pos, small_button_size, false)) {
+            if (render_button(state, "-", dec_pos, small_button_size, INPUT_NONE)) {
                 if (band->wavelength_scale > 0) {
                     band->wavelength_scale--;
                 }
@@ -2025,7 +2039,7 @@ Layout draw_lens(AppState* state, Layout layout) {
 
             // Increment button (increase exponent)
             V2 inc_pos = {text_pos.x + 40, layout.next.y};
-            if (render_button(state, "+", inc_pos, small_button_size, false)) {
+            if (render_button(state, "+", inc_pos, small_button_size, INPUT_NONE)) {
                 if (band->wavelength_scale < 8) {
                     band->wavelength_scale++;
                 }
@@ -2035,7 +2049,7 @@ Layout draw_lens(AppState* state, Layout layout) {
             V2 phase_pos = {inc_pos.x + small_button_size.x + 10, layout.next.y};
             V2 phase_button_size = {80, 22};
             const char* phase_text = band->wave_inverted ? "sin 0" : "sin pi";
-            if (render_button(state, phase_text, phase_pos, phase_button_size, band->wave_inverted)) {
+            if (render_button(state, phase_text, phase_pos, phase_button_size, HIGHLIGHTED(band->wave_inverted))) {
                 band->wave_inverted = !band->wave_inverted;
             }
 
@@ -2043,7 +2057,7 @@ Layout draw_lens(AppState* state, Layout layout) {
             V2 half_pos = {phase_pos.x + phase_button_size.x + 5, layout.next.y};
             V2 half_button_size = {50, 22};
             const char* half_text = band->wave_half_period ? "Full" : "Half";
-            if (render_button(state, half_text, half_pos, half_button_size, band->wave_half_period)) {
+            if (render_button(state, half_text, half_pos, half_button_size, HIGHLIGHTED(band->wave_half_period))) {
                 band->wave_half_period = !band->wave_half_period;
             }
         }
