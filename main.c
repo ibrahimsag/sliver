@@ -1947,6 +1947,163 @@ void init_bands_rand(AppState* state) {
     add_random_band(state);
 }
 
+const char* band_kind_to_string(BandKind kind) {
+    switch (kind) {
+        case BAND_CLOSED: return "CLOSED";
+        case BAND_OPEN: return "OPEN";
+        default: return "UNKNOWN";
+    }
+}
+
+const char* line_kind_to_string(LineKind kind) {
+    switch (kind) {
+        case KIND_SHARP: return "SHARP";
+        case KIND_ROUNDED: return "ROUNDED";
+        case KIND_DOUBLE: return "DOUBLE";
+        case KIND_WAVE: return "WAVE";
+        default: return "UNKNOWN";
+    }
+}
+
+BandKind string_to_band_kind(const char* str) {
+    if (strcmp(str, "CLOSED") == 0) return BAND_CLOSED;
+    if (strcmp(str, "OPEN") == 0) return BAND_OPEN;
+    return BAND_CLOSED;
+}
+
+LineKind string_to_line_kind(const char* str) {
+    if (strcmp(str, "SHARP") == 0) return KIND_SHARP;
+    if (strcmp(str, "ROUNDED") == 0) return KIND_ROUNDED;
+    if (strcmp(str, "DOUBLE") == 0) return KIND_DOUBLE;
+    if (strcmp(str, "WAVE") == 0) return KIND_WAVE;
+    return KIND_SHARP;
+}
+
+void work_save(Work* work, const char* filename) {
+    FILE* file = fopen(filename, "w");
+    if (!file) {
+        printf("Failed to open file for writing: %s\n", filename);
+        return;
+    }
+
+    fprintf(file, "WORK SLIVER 0001\n");
+
+    for (size_t i = 0; i < work->bands.length; i++) {
+        Band* band = &work->bands.ptr[i];
+        fprintf(file, "{\n");
+        fprintf(file, "  type: band\n");
+        fprintf(file, "  interval: %f %f\n", band->interval.start, band->interval.end);
+        fprintf(file, "  stride: %f\n", band->stride);
+        fprintf(file, "  repeat: %d\n", band->repeat);
+        fprintf(file, "  kind: %s\n", band_kind_to_string(band->kind));
+        fprintf(file, "  line_kind: %s\n", line_kind_to_string(band->line_kind));
+        fprintf(file, "  color: %f %f %f\n", band->color.hue, band->color.lightness, band->color.chroma);
+        fprintf(file, "  label: \"%s\"\n", band->label ? band->label : "");
+        fprintf(file, "  wavelength_scale: %d\n", band->wavelength_scale);
+        fprintf(file, "  wave_inverted: %s\n", band->wave_inverted ? "true" : "false");
+        fprintf(file, "  wave_half_period: %s\n", band->wave_half_period ? "true" : "false");
+        fprintf(file, "  follow_previous: %s\n", band->follow_previous ? "true" : "false");
+        fprintf(file, "  label_anchor: %d\n", band->label_anchor);
+        fprintf(file, "  label_offset: %f %f\n", band->label_offset.x, band->label_offset.y);
+        fprintf(file, "}\n");
+    }
+
+    fclose(file);
+    printf("Work saved to %s\n", filename);
+}
+
+bool work_load(Work* work, const char* filename) {
+    FILE* file = fopen(filename, "r");
+    if (!file) {
+        printf("Failed to open file for reading: %s\n", filename);
+        return false;
+    }
+
+    char line[512];
+    if (!fgets(line, sizeof(line), file) || strncmp(line, "WORK SLIVER", 11) != 0) {
+        printf("Invalid file format\n");
+        fclose(file);
+        return false;
+    }
+
+    work->bands.length = 0;
+    work->labels.count = 0;
+
+    Band temp_band = {0};
+    char temp_label[256] = {0};
+    bool in_record = false;
+
+    while (fgets(line, sizeof(line), file)) {
+        char* trimmed = line;
+        while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
+
+        if (trimmed[0] == '{') {
+            in_record = true;
+            memset(&temp_band, 0, sizeof(Band));
+            temp_label[0] = '\0';
+        } else if (trimmed[0] == '}') {
+            if (in_record) {
+                char* label_ptr = label_array_allocate_string(&work->labels, temp_label);
+                temp_band.label = label_ptr;
+                band_array_add(&work->bands, temp_band);
+                in_record = false;
+            }
+        } else if (in_record) {
+            if (strncmp(trimmed, "interval:", 9) == 0) {
+                sscanf(trimmed + 9, "%f %f", &temp_band.interval.start, &temp_band.interval.end);
+            } else if (strncmp(trimmed, "stride:", 7) == 0) {
+                sscanf(trimmed + 7, "%f", &temp_band.stride);
+            } else if (strncmp(trimmed, "repeat:", 7) == 0) {
+                sscanf(trimmed + 7, "%d", &temp_band.repeat);
+            } else if (strncmp(trimmed, "kind:", 5) == 0) {
+                char kind_str[32];
+                sscanf(trimmed + 5, "%31s", kind_str);
+                temp_band.kind = string_to_band_kind(kind_str);
+            } else if (strncmp(trimmed, "line_kind:", 10) == 0) {
+                char line_kind_str[32];
+                sscanf(trimmed + 10, "%31s", line_kind_str);
+                temp_band.line_kind = string_to_line_kind(line_kind_str);
+            } else if (strncmp(trimmed, "color:", 6) == 0) {
+                sscanf(trimmed + 6, "%f %f %f", &temp_band.color.hue, &temp_band.color.lightness, &temp_band.color.chroma);
+            } else if (strncmp(trimmed, "label:", 6) == 0) {
+                char* label_start = strchr(trimmed + 6, '"');
+                if (label_start) {
+                    label_start++;
+                    char* label_end = strchr(label_start, '"');
+                    if (label_end) {
+                        size_t len = label_end - label_start;
+                        if (len >= sizeof(temp_label)) len = sizeof(temp_label) - 1;
+                        strncpy(temp_label, label_start, len);
+                        temp_label[len] = '\0';
+                    }
+                }
+            } else if (strncmp(trimmed, "wavelength_scale:", 17) == 0) {
+                sscanf(trimmed + 17, "%d", &temp_band.wavelength_scale);
+            } else if (strncmp(trimmed, "wave_inverted:", 14) == 0) {
+                char bool_str[16];
+                sscanf(trimmed + 14, "%15s", bool_str);
+                temp_band.wave_inverted = (strcmp(bool_str, "true") == 0);
+            } else if (strncmp(trimmed, "wave_half_period:", 17) == 0) {
+                char bool_str[16];
+                sscanf(trimmed + 17, "%15s", bool_str);
+                temp_band.wave_half_period = (strcmp(bool_str, "true") == 0);
+            } else if (strncmp(trimmed, "follow_previous:", 16) == 0) {
+                char bool_str[16];
+                sscanf(trimmed + 16, "%15s", bool_str);
+                temp_band.follow_previous = (strcmp(bool_str, "true") == 0);
+            } else if (strncmp(trimmed, "label_anchor:", 13) == 0) {
+                sscanf(trimmed + 13, "%d", (int*)&temp_band.label_anchor);
+            } else if (strncmp(trimmed, "label_offset:", 13) == 0) {
+                sscanf(trimmed + 13, "%f %f", &temp_band.label_offset.x, &temp_band.label_offset.y);
+            }
+        }
+    }
+
+    fclose(file);
+    printf("Work loaded from %s (%zu bands)\n", filename, work->bands.length);
+    return true;
+}
+
 void print_bands_as_code(AppState* state) {
     StringBuilder* sb = &state->string_builder;
     string_builder_clear(sb);
@@ -2045,12 +2202,18 @@ Layout draw_work_ui(AppState* state, Layout layout) {
     }
     advance_horizontal(&layout, button_size.x + 10);
 
-    // Placeholder for future Load button
-    // render_button(state, "Load", layout.next, button_size, false);
-    // advance_horizontal(&layout, button_size.x + 10);
+    if (render_button(state, "Store", layout.next, button_size, false)) {
+        time_t now = time(NULL);
+        struct tm *tm_info = localtime(&now);
+        char filename[256];
+        strftime(filename, sizeof(filename), "work_%Y-%m-%d_%H-%M-%S.wo", tm_info);
+        work_save(&state->work, filename);
+    }
+    advance_horizontal(&layout, button_size.x + 10);
 
-    // Placeholder for future Store button
-    // render_button(state, "Store", layout.next, button_size, false);
+    if (render_button(state, "Load", layout.next, button_size, false)) {
+        work_load(&state->work, "work.wo");
+    }
 
     advance_vertical(&layout, 30);
 
