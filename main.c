@@ -31,6 +31,13 @@ typedef struct {
     float x, y;
 } V2;
 
+V2 v2_add(V2 a, V2 b) { return (V2){a.x + b.x, a.y + b.y}; }
+V2 v2_sub(V2 a, V2 b) { return (V2){a.x - b.x, a.y - b.y}; }
+V2 v2_scale(V2 v, float s) { return (V2){v.x * s, v.y * s}; }
+V2 v2_lerp(V2 a, V2 b, float t) { return v2_add(a, v2_scale(v2_sub(b, a), t)); }
+float v2_dist(V2 a, V2 b) { V2 d = v2_sub(b, a); return sqrtf(d.x * d.x + d.y * d.y); }
+float v2_length(V2 v) { return sqrtf(v.x * v.x + v.y * v.y); }
+
 typedef struct {
     V2 next;       // Next position to draw at
     V2 row_start;  // Start position of current row for horizontal layouts
@@ -112,13 +119,6 @@ typedef struct {
     BandArray bands;       // Band definitions
     LabelArray labels;     // Label strings
 } Work;
-
-V2 v2_add(V2 a, V2 b) { return (V2){a.x + b.x, a.y + b.y}; }
-V2 v2_sub(V2 a, V2 b) { return (V2){a.x - b.x, a.y - b.y}; }
-V2 v2_scale(V2 v, float s) { return (V2){v.x * s, v.y * s}; }
-V2 v2_lerp(V2 a, V2 b, float t) { return v2_add(a, v2_scale(v2_sub(b, a), t)); }
-float v2_dist(V2 a, V2 b) { V2 d = v2_sub(b, a); return sqrtf(d.x * d.x + d.y * d.y); }
-float v2_length(V2 v) { return sqrtf(v.x * v.x + v.y * v.y); }
 
 typedef struct {
     V2 start, end;
@@ -297,7 +297,6 @@ float ease_out_bounce(float t) {
 
 // Forward declarations
 void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius);
-void draw_circle(SDL_Renderer* renderer, V2 center, float radius);
 void flatten_bands(BandArray* source, BandArray* dest);
 void init_bands_week(AppState* state);
 void init_bands_tz(AppState* state);
@@ -687,48 +686,6 @@ void draw_square(SDL_Renderer* renderer, V2 p1, V2 p2, bool rounded, float anima
     }
 }
 
-void draw_circle(SDL_Renderer* renderer, V2 center, float radius) {
-    const int segments = 32;
-    for (int i = 0; i < segments; i++) {
-        float angle1 = (2.0f * M_PI * i) / segments;
-        float angle2 = (2.0f * M_PI * (i + 1)) / segments;
-        SDL_RenderDrawLine(renderer,
-                          center.x + radius * cosf(angle1),
-                          center.y + radius * sinf(angle1),
-                          center.x + radius * cosf(angle2),
-                          center.y + radius * sinf(angle2));
-    }
-}
-
-void render_ui_panel(AppState* state) {
-    // Draw UI panel background
-    SDL_SetRenderDrawColor(state->renderer, 40, 40, 45, 255);
-    SDL_Rect panel_rect = {VIEWPORT_WIDTH, 0, UI_PANEL_WIDTH, WINDOW_HEIGHT};
-    SDL_RenderFillRect(state->renderer, &panel_rect);
-
-    // Draw panel border
-    SDL_SetRenderDrawColor(state->renderer, 60, 60, 65, 255);
-    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT);
-
-    Layout layout = {
-        .next = {VIEWPORT_WIDTH + 20, 20},
-        .row_start = {VIEWPORT_WIDTH + 20, 20},
-        .max = {WINDOW_WIDTH - 20, WINDOW_HEIGHT - 40}
-    };
-
-    // Layer 1: Work management
-    layout = draw_work_ui(state, layout);
-    layout.row_start = layout.next;
-
-    // Visual separator
-    SDL_SetRenderDrawColor(state->renderer, 80, 80, 85, 255);
-    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH + 10, layout.next.y, WINDOW_WIDTH - 10, layout.next.y);
-    advance_vertical(&layout, 15);
-
-    // Layer 2: Lens (band viewing/editing)
-    layout = draw_lens(state, layout);
-}
-
 void render_text(AppState* state, const char* text, V2 position, SDL_Color color) {
     if (!state->font || !text) return;
 
@@ -1080,6 +1037,193 @@ void render_text_input_field(AppState* state, char* text, size_t max_len, V2 pos
     }
 }
 
+// Draw a wavy line between two points
+void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thickness, float amplitude, float wavelength, SDL_Color color, bool inverted, bool half_period) {
+    V2 dir = v2_sub(p2, p1);
+    float length = v2_length(dir);
+    if (length == 0) return;
+
+    dir = v2_scale(dir, 1.0f / length);
+    V2 perp = {-dir.y, dir.x};  // Perpendicular direction
+
+    // Calculate number of complete wavelengths that fit
+    float num_waves = length / wavelength;
+    float target_waves;
+
+    if (!half_period) {  // Inverted logic - false means half period
+        // Target (2n+1)/2 periods: 0.5, 1.5, 2.5, etc.
+        int n = (int)(num_waves);
+        target_waves = (n > 0) ? n + 0.5f : 0.5f;
+    } else {
+        // Target n periods: 1, 2, 3, etc.
+        target_waves = (int)(num_waves + 0.5f);
+        if (target_waves < 1) target_waves = 1;
+    }
+
+    // Adjust wavelength to fit exactly
+    float adjusted_wavelength = length / target_waves;
+
+    // Number of segments for smooth sine wave (more segments = smoother curve)
+    int segments = (int)(length / 2.0f);  // One segment every 2 pixels
+    if (segments < 16) segments = 16;  // Minimum 16 segments for smoothness
+
+    for (int i = 0; i < segments; i++) {
+        float t1 = (float)i / segments;
+        float t2 = (float)(i + 1) / segments;
+
+        // Calculate positions along the line
+        V2 base1 = v2_lerp(p1, p2, t1);
+        V2 base2 = v2_lerp(p1, p2, t2);
+
+        // Calculate wave offsets using adjusted wavelength with optional π phase offset
+        float phase_offset = !inverted ? M_PI : 0.0f;  // Inverted logic - false means π offset
+        float phase1 = (t1 * length / adjusted_wavelength) * 2.0f * M_PI + phase_offset;
+        float phase2 = (t2 * length / adjusted_wavelength) * 2.0f * M_PI + phase_offset;
+        float offset1 = sinf(phase1) * amplitude;
+        float offset2 = sinf(phase2) * amplitude;
+
+        // Apply wave offsets
+        V2 wave1 = v2_add(base1, v2_scale(perp, offset1));
+        V2 wave2 = v2_add(base2, v2_scale(perp, offset2));
+
+        // Draw line segment
+        geometry_buffer_add_line(gb, wave1, wave2, thickness, color);
+    }
+}
+
+// Draw wave rectangle with geometry buffer
+void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period, int hide_flags) {
+    float thickness = 2.0f;
+    float amplitude = thickness * 2.0f;  // Amplitude is 3x thickness
+    float wavelength = thickness * 8.0f * (1 << wavelength_scale);  // Wavelength is 8x thickness * 2^scale
+
+    // Convert world coordinates to screen
+    V2 tl = world_to_screen((V2){x, y}, camera);
+    V2 tr = world_to_screen((V2){x + w, y}, camera);
+    V2 br = world_to_screen((V2){x + w, y + h}, camera);
+    V2 bl = world_to_screen((V2){x, y + h}, camera);
+
+    // Scale amplitude and wavelength for screen space
+    // wavelength_scale is already the exponent, so use it directly for amplitude scaling
+    float amplitude_scale = 1.0f + wavelength_scale * 0.5f;
+    float screen_amplitude = amplitude * amplitude_scale * camera->scale;
+    float screen_wavelength = wavelength * camera->scale;
+
+    // Draw four wavy sides (skip hidden edges)
+    if (!(hide_flags & EDGE_TOP))
+        geometry_buffer_add_wave_line(gb, tl, tr, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Top
+    if (!(hide_flags & EDGE_RIGHT))
+        geometry_buffer_add_wave_line(gb, tr, br, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Right
+    if (!(hide_flags & EDGE_BOTTOM))
+        geometry_buffer_add_wave_line(gb, br, bl, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Bottom
+    if (!(hide_flags & EDGE_LEFT))
+        geometry_buffer_add_wave_line(gb, bl, tl, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Left
+}
+
+// Draw double-line rectangle with geometry buffer
+void draw_double_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int hide_flags) {
+    float thickness = 2.0f;
+    float gap = thickness * 2.0f;  // Gap between lines equals thickness
+
+    // Outer rectangle
+    V2 tl_outer = world_to_screen((V2){x, y}, camera);
+    V2 tr_outer = world_to_screen((V2){x + w, y}, camera);
+    V2 br_outer = world_to_screen((V2){x + w, y + h}, camera);
+    V2 bl_outer = world_to_screen((V2){x, y + h}, camera);
+
+    if (!(hide_flags & EDGE_TOP))
+        geometry_buffer_add_line(gb, tl_outer, tr_outer, thickness, color);
+    if (!(hide_flags & EDGE_RIGHT))
+        geometry_buffer_add_line(gb, tr_outer, br_outer, thickness, color);
+    if (!(hide_flags & EDGE_BOTTOM))
+        geometry_buffer_add_line(gb, br_outer, bl_outer, thickness, color);
+    if (!(hide_flags & EDGE_LEFT))
+        geometry_buffer_add_line(gb, bl_outer, tl_outer, thickness, color);
+
+    // Inner rectangle (inset by gap)
+    float inset = gap / camera->scale;  // Convert gap to world units
+    V2 tl_inner = world_to_screen((V2){x + inset, y + inset}, camera);
+    V2 tr_inner = world_to_screen((V2){x + w - inset, y + inset}, camera);
+    V2 br_inner = world_to_screen((V2){x + w - inset, y + h - inset}, camera);
+    V2 bl_inner = world_to_screen((V2){x + inset, y + h - inset}, camera);
+
+    if (!(hide_flags & EDGE_TOP))
+        geometry_buffer_add_line(gb, tl_inner, tr_inner, thickness, color);
+    if (!(hide_flags & EDGE_RIGHT))
+        geometry_buffer_add_line(gb, tr_inner, br_inner, thickness, color);
+    if (!(hide_flags & EDGE_BOTTOM))
+        geometry_buffer_add_line(gb, br_inner, bl_inner, thickness, color);
+    if (!(hide_flags & EDGE_LEFT))
+        geometry_buffer_add_line(gb, bl_inner, tl_inner, thickness, color);
+}
+
+// Draw rounded rectangle with geometry buffer
+void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, float radius, SDL_Color color, Camera* camera, int hide_flags) {
+    if (radius <= 0) {
+        // Draw regular rectangle with thick lines
+        V2 tl = world_to_screen((V2){x, y}, camera);
+        V2 tr = world_to_screen((V2){x + w, y}, camera);
+        V2 br = world_to_screen((V2){x + w, y + h}, camera);
+        V2 bl = world_to_screen((V2){x, y + h}, camera);
+
+        if (!(hide_flags & EDGE_TOP))
+            geometry_buffer_add_line(gb, tl, tr, 2.0f, color);
+        if (!(hide_flags & EDGE_RIGHT))
+            geometry_buffer_add_line(gb, tr, br, 2.0f, color);
+        if (!(hide_flags & EDGE_BOTTOM))
+            geometry_buffer_add_line(gb, br, bl, 2.0f, color);
+        if (!(hide_flags & EDGE_LEFT))
+            geometry_buffer_add_line(gb, bl, tl, 2.0f, color);
+    } else {
+        // Draw rounded rectangle with arcs at corners
+        V2 tl_inner = world_to_screen((V2){x + radius, y + radius}, camera);
+        V2 tr_inner = world_to_screen((V2){x + w - radius, y + radius}, camera);
+        V2 br_inner = world_to_screen((V2){x + w - radius, y + h - radius}, camera);
+        V2 bl_inner = world_to_screen((V2){x + radius, y + h - radius}, camera);
+
+        // Top line
+        if (!(hide_flags & EDGE_TOP))
+            geometry_buffer_add_line(gb,
+                world_to_screen((V2){x + radius, y}, camera),
+                world_to_screen((V2){x + w - radius, y}, camera),
+                2.0f, color);
+
+        // Right line
+        if (!(hide_flags & EDGE_RIGHT))
+            geometry_buffer_add_line(gb,
+                world_to_screen((V2){x + w, y + radius}, camera),
+                world_to_screen((V2){x + w, y + h - radius}, camera),
+                2.0f, color);
+
+        // Bottom line
+        if (!(hide_flags & EDGE_BOTTOM))
+            geometry_buffer_add_line(gb,
+                world_to_screen((V2){x + w - radius, y + h}, camera),
+                world_to_screen((V2){x + radius, y + h}, camera),
+                2.0f, color);
+
+        // Left line
+        if (!(hide_flags & EDGE_LEFT))
+            geometry_buffer_add_line(gb,
+                world_to_screen((V2){x, y + h - radius}, camera),
+                world_to_screen((V2){x, y + radius}, camera),
+                2.0f, color);
+
+        // Calculate screen radius
+        float screen_radius = radius * camera->scale;
+
+        // Corner arcs (only draw if adjacent edges are visible)
+        if (!(hide_flags & EDGE_TOP) && !(hide_flags & EDGE_LEFT))
+            geometry_buffer_add_arc(gb, tl_inner, screen_radius, M_PI, M_PI * 1.5f, 2.0f, color, 8);
+        if (!(hide_flags & EDGE_TOP) && !(hide_flags & EDGE_RIGHT))
+            geometry_buffer_add_arc(gb, tr_inner, screen_radius, M_PI * 1.5f, M_PI * 2.0f, 2.0f, color, 8);
+        if (!(hide_flags & EDGE_BOTTOM) && !(hide_flags & EDGE_RIGHT))
+            geometry_buffer_add_arc(gb, br_inner, screen_radius, 0, M_PI * 0.5f, 2.0f, color, 8);
+        if (!(hide_flags & EDGE_BOTTOM) && !(hide_flags & EDGE_LEFT))
+            geometry_buffer_add_arc(gb, bl_inner, screen_radius, M_PI * 0.5f, M_PI, 2.0f, color, 8);
+    }
+}
+
 // Draw Work UI layer - manages Work objects (load, store, init)
 Layout draw_work_ui(AppState* state, Layout layout) {
     V2 button_size = {80, 25};
@@ -1134,6 +1278,7 @@ Layout draw_work_ui(AppState* state, Layout layout) {
 
     return layout;
 }
+
 // Draw Lens layer - views and edits bands within current Work
 Layout draw_lens(AppState* state, Layout layout) {
     V2 button_size = {80, 25};
@@ -1367,191 +1512,33 @@ Layout draw_lens(AppState* state, Layout layout) {
     return layout;
 }
 
-// Draw a wavy line between two points
-void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thickness, float amplitude, float wavelength, SDL_Color color, bool inverted, bool half_period) {
-    V2 dir = v2_sub(p2, p1);
-    float length = v2_length(dir);
-    if (length == 0) return;
+void render_ui_panel(AppState* state) {
+    // Draw UI panel background
+    SDL_SetRenderDrawColor(state->renderer, 40, 40, 45, 255);
+    SDL_Rect panel_rect = {VIEWPORT_WIDTH, 0, UI_PANEL_WIDTH, WINDOW_HEIGHT};
+    SDL_RenderFillRect(state->renderer, &panel_rect);
 
-    dir = v2_scale(dir, 1.0f / length);
-    V2 perp = {-dir.y, dir.x};  // Perpendicular direction
+    // Draw panel border
+    SDL_SetRenderDrawColor(state->renderer, 60, 60, 65, 255);
+    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT);
 
-    // Calculate number of complete wavelengths that fit
-    float num_waves = length / wavelength;
-    float target_waves;
+    Layout layout = {
+        .next = {VIEWPORT_WIDTH + 20, 20},
+        .row_start = {VIEWPORT_WIDTH + 20, 20},
+        .max = {WINDOW_WIDTH - 20, WINDOW_HEIGHT - 40}
+    };
 
-    if (!half_period) {  // Inverted logic - false means half period
-        // Target (2n+1)/2 periods: 0.5, 1.5, 2.5, etc.
-        int n = (int)(num_waves);
-        target_waves = (n > 0) ? n + 0.5f : 0.5f;
-    } else {
-        // Target n periods: 1, 2, 3, etc.
-        target_waves = (int)(num_waves + 0.5f);
-        if (target_waves < 1) target_waves = 1;
-    }
+    // Layer 1: Work management
+    layout = draw_work_ui(state, layout);
+    layout.row_start = layout.next;
 
-    // Adjust wavelength to fit exactly
-    float adjusted_wavelength = length / target_waves;
+    // Visual separator
+    SDL_SetRenderDrawColor(state->renderer, 80, 80, 85, 255);
+    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH + 10, layout.next.y, WINDOW_WIDTH - 10, layout.next.y);
+    advance_vertical(&layout, 15);
 
-    // Number of segments for smooth sine wave (more segments = smoother curve)
-    int segments = (int)(length / 2.0f);  // One segment every 2 pixels
-    if (segments < 16) segments = 16;  // Minimum 16 segments for smoothness
-
-    for (int i = 0; i < segments; i++) {
-        float t1 = (float)i / segments;
-        float t2 = (float)(i + 1) / segments;
-
-        // Calculate positions along the line
-        V2 base1 = v2_lerp(p1, p2, t1);
-        V2 base2 = v2_lerp(p1, p2, t2);
-
-        // Calculate wave offsets using adjusted wavelength with optional π phase offset
-        float phase_offset = !inverted ? M_PI : 0.0f;  // Inverted logic - false means π offset
-        float phase1 = (t1 * length / adjusted_wavelength) * 2.0f * M_PI + phase_offset;
-        float phase2 = (t2 * length / adjusted_wavelength) * 2.0f * M_PI + phase_offset;
-        float offset1 = sinf(phase1) * amplitude;
-        float offset2 = sinf(phase2) * amplitude;
-
-        // Apply wave offsets
-        V2 wave1 = v2_add(base1, v2_scale(perp, offset1));
-        V2 wave2 = v2_add(base2, v2_scale(perp, offset2));
-
-        // Draw line segment
-        geometry_buffer_add_line(gb, wave1, wave2, thickness, color);
-    }
-}
-
-// Draw wave rectangle with geometry buffer
-void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period, int hide_flags) {
-    float thickness = 2.0f;
-    float amplitude = thickness * 2.0f;  // Amplitude is 3x thickness
-    float wavelength = thickness * 8.0f * (1 << wavelength_scale);  // Wavelength is 8x thickness * 2^scale
-
-    // Convert world coordinates to screen
-    V2 tl = world_to_screen((V2){x, y}, camera);
-    V2 tr = world_to_screen((V2){x + w, y}, camera);
-    V2 br = world_to_screen((V2){x + w, y + h}, camera);
-    V2 bl = world_to_screen((V2){x, y + h}, camera);
-
-    // Scale amplitude and wavelength for screen space
-    // wavelength_scale is already the exponent, so use it directly for amplitude scaling
-    float amplitude_scale = 1.0f + wavelength_scale * 0.5f;
-    float screen_amplitude = amplitude * amplitude_scale * camera->scale;
-    float screen_wavelength = wavelength * camera->scale;
-
-    // Draw four wavy sides (skip hidden edges)
-    if (!(hide_flags & EDGE_TOP))
-        geometry_buffer_add_wave_line(gb, tl, tr, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Top
-    if (!(hide_flags & EDGE_RIGHT))
-        geometry_buffer_add_wave_line(gb, tr, br, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Right
-    if (!(hide_flags & EDGE_BOTTOM))
-        geometry_buffer_add_wave_line(gb, br, bl, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Bottom
-    if (!(hide_flags & EDGE_LEFT))
-        geometry_buffer_add_wave_line(gb, bl, tl, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Left
-}
-
-// Draw double-line rectangle with geometry buffer
-void draw_double_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int hide_flags) {
-    float thickness = 2.0f;
-    float gap = thickness * 2.0f;  // Gap between lines equals thickness
-
-    // Outer rectangle
-    V2 tl_outer = world_to_screen((V2){x, y}, camera);
-    V2 tr_outer = world_to_screen((V2){x + w, y}, camera);
-    V2 br_outer = world_to_screen((V2){x + w, y + h}, camera);
-    V2 bl_outer = world_to_screen((V2){x, y + h}, camera);
-
-    if (!(hide_flags & EDGE_TOP))
-        geometry_buffer_add_line(gb, tl_outer, tr_outer, thickness, color);
-    if (!(hide_flags & EDGE_RIGHT))
-        geometry_buffer_add_line(gb, tr_outer, br_outer, thickness, color);
-    if (!(hide_flags & EDGE_BOTTOM))
-        geometry_buffer_add_line(gb, br_outer, bl_outer, thickness, color);
-    if (!(hide_flags & EDGE_LEFT))
-        geometry_buffer_add_line(gb, bl_outer, tl_outer, thickness, color);
-
-    // Inner rectangle (inset by gap)
-    float inset = gap / camera->scale;  // Convert gap to world units
-    V2 tl_inner = world_to_screen((V2){x + inset, y + inset}, camera);
-    V2 tr_inner = world_to_screen((V2){x + w - inset, y + inset}, camera);
-    V2 br_inner = world_to_screen((V2){x + w - inset, y + h - inset}, camera);
-    V2 bl_inner = world_to_screen((V2){x + inset, y + h - inset}, camera);
-
-    if (!(hide_flags & EDGE_TOP))
-        geometry_buffer_add_line(gb, tl_inner, tr_inner, thickness, color);
-    if (!(hide_flags & EDGE_RIGHT))
-        geometry_buffer_add_line(gb, tr_inner, br_inner, thickness, color);
-    if (!(hide_flags & EDGE_BOTTOM))
-        geometry_buffer_add_line(gb, br_inner, bl_inner, thickness, color);
-    if (!(hide_flags & EDGE_LEFT))
-        geometry_buffer_add_line(gb, bl_inner, tl_inner, thickness, color);
-}
-
-// Draw rounded rectangle with geometry buffer
-void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, float radius, SDL_Color color, Camera* camera, int hide_flags) {
-    if (radius <= 0) {
-        // Draw regular rectangle with thick lines
-        V2 tl = world_to_screen((V2){x, y}, camera);
-        V2 tr = world_to_screen((V2){x + w, y}, camera);
-        V2 br = world_to_screen((V2){x + w, y + h}, camera);
-        V2 bl = world_to_screen((V2){x, y + h}, camera);
-
-        if (!(hide_flags & EDGE_TOP))
-            geometry_buffer_add_line(gb, tl, tr, 2.0f, color);
-        if (!(hide_flags & EDGE_RIGHT))
-            geometry_buffer_add_line(gb, tr, br, 2.0f, color);
-        if (!(hide_flags & EDGE_BOTTOM))
-            geometry_buffer_add_line(gb, br, bl, 2.0f, color);
-        if (!(hide_flags & EDGE_LEFT))
-            geometry_buffer_add_line(gb, bl, tl, 2.0f, color);
-    } else {
-        // Draw rounded rectangle with arcs at corners
-        V2 tl_inner = world_to_screen((V2){x + radius, y + radius}, camera);
-        V2 tr_inner = world_to_screen((V2){x + w - radius, y + radius}, camera);
-        V2 br_inner = world_to_screen((V2){x + w - radius, y + h - radius}, camera);
-        V2 bl_inner = world_to_screen((V2){x + radius, y + h - radius}, camera);
-
-        // Top line
-        if (!(hide_flags & EDGE_TOP))
-            geometry_buffer_add_line(gb,
-                world_to_screen((V2){x + radius, y}, camera),
-                world_to_screen((V2){x + w - radius, y}, camera),
-                2.0f, color);
-
-        // Right line
-        if (!(hide_flags & EDGE_RIGHT))
-            geometry_buffer_add_line(gb,
-                world_to_screen((V2){x + w, y + radius}, camera),
-                world_to_screen((V2){x + w, y + h - radius}, camera),
-                2.0f, color);
-
-        // Bottom line
-        if (!(hide_flags & EDGE_BOTTOM))
-            geometry_buffer_add_line(gb,
-                world_to_screen((V2){x + w - radius, y + h}, camera),
-                world_to_screen((V2){x + radius, y + h}, camera),
-                2.0f, color);
-
-        // Left line
-        if (!(hide_flags & EDGE_LEFT))
-            geometry_buffer_add_line(gb,
-                world_to_screen((V2){x, y + h - radius}, camera),
-                world_to_screen((V2){x, y + radius}, camera),
-                2.0f, color);
-
-        // Calculate screen radius
-        float screen_radius = radius * camera->scale;
-
-        // Corner arcs (only draw if adjacent edges are visible)
-        if (!(hide_flags & EDGE_TOP) && !(hide_flags & EDGE_LEFT))
-            geometry_buffer_add_arc(gb, tl_inner, screen_radius, M_PI, M_PI * 1.5f, 2.0f, color, 8);
-        if (!(hide_flags & EDGE_TOP) && !(hide_flags & EDGE_RIGHT))
-            geometry_buffer_add_arc(gb, tr_inner, screen_radius, M_PI * 1.5f, M_PI * 2.0f, 2.0f, color, 8);
-        if (!(hide_flags & EDGE_BOTTOM) && !(hide_flags & EDGE_RIGHT))
-            geometry_buffer_add_arc(gb, br_inner, screen_radius, 0, M_PI * 0.5f, 2.0f, color, 8);
-        if (!(hide_flags & EDGE_BOTTOM) && !(hide_flags & EDGE_LEFT))
-            geometry_buffer_add_arc(gb, bl_inner, screen_radius, M_PI * 0.5f, M_PI, 2.0f, color, 8);
-    }
+    // Layer 2: Lens (band viewing/editing)
+    layout = draw_lens(state, layout);
 }
 
 void render(AppState* state) {
