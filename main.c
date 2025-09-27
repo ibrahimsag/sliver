@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <time.h>
+#include <dirent.h>
 #include "color.h"
 
 #define WINDOW_WIDTH 1920
@@ -90,6 +91,11 @@ typedef enum {
     LABEL_BOTTOM_CENTER = 7,
     LABEL_BOTTOM_RIGHT = 8
 } LabelAnchor;
+
+typedef enum {
+    UI_LENS = 0,
+    UI_SHELF = 1
+} UIState;
 
 typedef struct {
     Interval interval;  // Base interval (start and end positions)
@@ -195,6 +201,7 @@ typedef struct {
     float drag_start_mouse_x;    // Mouse X position when drag started
     LabelAnchor label_anchor;  // Default anchor for band labels
     int band_offset;  // Offset for band iteration in UI
+    UIState ui_state;  // Current UI mode (LENS or SHELF)
     bool running;
 } AppState;
 
@@ -1979,6 +1986,33 @@ LineKind string_to_line_kind(const char* str) {
     return KIND_SHARP;
 }
 
+typedef struct {
+    char files[64][256];
+    size_t count;
+} FileList;
+
+void get_wo_files(FileList* list) {
+    list->count = 0;
+
+    DIR* dir = opendir(".");
+    if (!dir) {
+        printf("Failed to open directory\n");
+        return;
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL && list->count < 64) {
+        size_t len = strlen(entry->d_name);
+        if (len > 3 && strcmp(entry->d_name + len - 3, ".wo") == 0) {
+            strncpy(list->files[list->count], entry->d_name, 255);
+            list->files[list->count][255] = '\0';
+            list->count++;
+        }
+    }
+
+    closedir(dir);
+}
+
 void work_save(Work* work, const char* filename) {
     FILE* file = fopen(filename, "w");
     if (!file) {
@@ -2212,7 +2246,7 @@ Layout draw_work_ui(AppState* state, Layout layout) {
     advance_horizontal(&layout, button_size.x + 10);
 
     if (render_button(state, "Load", layout.next, button_size, false)) {
-        work_load(&state->work, "work.wo");
+        state->ui_state = UI_SHELF;
     }
 
     advance_vertical(&layout, 30);
@@ -2221,6 +2255,39 @@ Layout draw_work_ui(AppState* state, Layout layout) {
 }
 
 // Draw Lens layer - views and edits bands within current Work
+Layout draw_shelf(AppState* state, Layout layout) {
+    V2 button_size = {300, 30};
+    SDL_Color white = {255, 255, 255, 255};
+
+    render_text(state, "Select a work file to load:", layout.next, white);
+    advance_vertical(&layout, 35);
+
+    FileList file_list;
+    get_wo_files(&file_list);
+
+    if (file_list.count == 0) {
+        render_text(state, "No .wo files found", layout.next, white);
+    } else {
+        for (size_t i = 0; i < file_list.count; i++) {
+            if (render_button(state, file_list.files[i], layout.next, button_size, false)) {
+                work_load(&state->work, file_list.files[i]);
+                state->ui_state = UI_LENS;
+                break;
+            }
+            advance_vertical(&layout, button_size.y + 5);
+        }
+    }
+
+    advance_vertical(&layout, 15);
+
+    V2 cancel_button_size = {80, 25};
+    if (render_button(state, "Cancel", layout.next, cancel_button_size, false)) {
+        state->ui_state = UI_LENS;
+    }
+
+    return layout;
+}
+
 Layout draw_lens(AppState* state, Layout layout) {
     V2 button_size = {80, 25};
 
@@ -2478,8 +2545,12 @@ void render_ui_panel(AppState* state) {
     SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH + 10, layout.next.y, WINDOW_WIDTH - 10, layout.next.y);
     advance_vertical(&layout, 15);
 
-    // Layer 2: Lens (band viewing/editing)
-    layout = draw_lens(state, layout);
+    // Layer 2: Switch between SHELF (file list) and LENS (band editing)
+    if (state->ui_state == UI_SHELF) {
+        layout = draw_shelf(state, layout);
+    } else {
+        layout = draw_lens(state, layout);
+    }
 }
 
 void render(AppState* state) {
@@ -2767,6 +2838,7 @@ int main(int argc, char* argv[]) {
 
     AppState state = {0};
     state.running = true;
+    state.ui_state = UI_LENS;
     state.selected_corner = CORNER_BR;  // Start with bottom-right selected
     state.label_anchor = LABEL_BOTTOM_RIGHT;  // Start with bottom-right labels
     state.band_offset = 0;  // Start at beginning of band list
