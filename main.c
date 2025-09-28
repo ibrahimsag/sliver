@@ -51,11 +51,6 @@ typedef struct {
     float start, end;
 } Interval;
 
-typedef struct {
-    char* ptr;         // Pointer to the fixed buffer
-    size_t count;      // Current number of 32-byte chunks used
-    size_t capacity;   // Total number of 32-byte chunks available
-} LabelArray;
 
 typedef struct {
     char* ptr;         // Pointer to the buffer
@@ -121,7 +116,7 @@ typedef struct {
     BandKind kind;  // BAND_CLOSED or BAND_OPEN
     LineKind line_kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
     LCH color;     // Color in OKLCH color space
-    char* label;  // Label text for the band (pointer into LabelArray)
+    char label[32];  // Label text for the band
     int wavelength_scale;  // Multiplier for wavelength when line_kind is WAVE
     bool wave_inverted;  // Whether to use π phase offset for waves
     bool wave_half_period;  // Whether to add extra half period (end at opposite phase)
@@ -142,7 +137,6 @@ struct Work {
     char* arena;           // Single arena allocation
     size_t arena_size;     // Total size of arena
     BandArray bands;       // Band definitions
-    LabelArray labels;     // Label strings
     char filename[256];    // Last opened/saved filename
     uint32_t saved_hash;   // Hash of arena at last save/load
     Work* prev;            // Previous work in linked list
@@ -1077,25 +1071,13 @@ void render_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w,
     }
 }
 
-// LabelArray functions
+// Label functions
 
-char* label_array_allocate(LabelArray* lb) {
-    assert(lb->count < lb->capacity);  // Die if full
-    char* label = lb->ptr + (lb->count * 32);
-    // Default to a single letter from the alphabet, cycling A-Z
-    snprintf(label, 32, "%c", 'A' + (char)(lb->count % 26));
-    lb->count++;
-    return label;
+void label_copy(char dest[32], const char* src) {
+    strncpy(dest, src, 31);
+    dest[31] = '\0';
 }
 
-char* label_array_allocate_string(LabelArray* lb, const char* str) {
-    char* label = label_array_allocate(lb);
-    if (str) {
-        strncpy(label, str, 31);
-        label[31] = '\0';
-    }
-    return label;
-}
 
 // BandArray management functions
 void band_array_init(BandArray* arr, size_t initial_capacity) {
@@ -1151,14 +1133,14 @@ void band_array_insert(BandArray* arr, size_t index, Band band) {
     arr->length++;
 }
 
-void band_array_copy_after(BandArray* arr, size_t index, LabelArray* lb) {
+void band_array_copy_after(BandArray* arr, size_t index) {
     if (index >= arr->length) return;
 
     Band original = arr->ptr[index];
     Band copy = original;
 
-    // Allocate new label and copy text
-    copy.label = label_array_allocate_string(lb, original.label);
+    // Copy label text
+    label_copy(copy.label, original.label);
 
     // Calculate size once and preserve it
     float size = original.interval.end - original.interval.start;
@@ -1170,7 +1152,7 @@ void band_array_copy_after(BandArray* arr, size_t index, LabelArray* lb) {
     band_array_insert(arr, index + 1, copy);
 }
 
-void band_array_split(BandArray* arr, size_t index, LabelArray* lb) {
+void band_array_split(BandArray* arr, size_t index) {
     if (index >= arr->length) return;
 
     Band* original = &arr->ptr[index];
@@ -1178,7 +1160,7 @@ void band_array_split(BandArray* arr, size_t index, LabelArray* lb) {
 
     // Create second half band
     Band second_half = *original;
-    second_half.label = label_array_allocate_string(lb, original->label);  // Copy label
+    label_copy(second_half.label, original->label);
     second_half.interval.start = midpoint;
     second_half.follow_previous = true;  // Second half follows the first half
 
@@ -1222,7 +1204,7 @@ void add_random_band(AppState* state) {
         .kind = BAND_CLOSED,  // Default to closed band
         .line_kind = KIND_WAVE,  // Default to wave
         .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
-        .label = label_array_allocate(&state->work->labels),  // Empty label
+        .label = {0},  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .label_anchor = LABEL_BOTTOM_RIGHT,  // Default label anchor
@@ -1230,6 +1212,7 @@ void add_random_band(AppState* state) {
         .wave_half_period = false,
         .follow_previous = false
     };
+    snprintf(new_band.label, 32, "%c", 'A' + (char)(state->work->bands.length % 26));
 
     band_array_add(&state->work->bands, new_band);
 }
@@ -1250,7 +1233,7 @@ void add_open_band(AppState* state) {
         .kind = BAND_OPEN,  // Will be set automatically when start >= end
         .line_kind = KIND_WAVE,  // Default to wave
         .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
-        .label = label_array_allocate(&state->work->labels),  // Empty label
+        .label = {0},  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
         .wave_half_period = false,
@@ -1258,15 +1241,14 @@ void add_open_band(AppState* state) {
         .label_anchor = LABEL_BOTTOM_RIGHT,  // Default label anchor
         .label_offset = {0, 0}  // No offset
     };
+    snprintf(new_band.label, 32, "%c", 'A' + (char)(state->work->bands.length % 26));
 
     band_array_add(&state->work->bands, new_band);
 }
 
 void init_bands_rand(AppState* state) {
-    // Clear existing bands and reset label buffer
+    // Clear existing bands
     band_array_clear(&state->work->bands);
-    state->work->labels.count = 0;  // Reset label buffer to reclaim all slots
-    memset(state->work->labels.ptr, 0, state->work->labels.capacity * 32);  // Clear all label memory
 
     // Add a single random band
     add_random_band(state);
@@ -1305,11 +1287,10 @@ LineKind string_to_line_kind(const char* str) {
 }
 
 // Work functions
-void work_init(Work* work, size_t band_capacity, size_t label_capacity) {
+void work_init(Work* work, size_t band_capacity) {
     // Calculate arena size
     size_t bands_size = band_capacity * sizeof(Band);
-    size_t labels_size = label_capacity * 32;  // 32 bytes per label
-    work->arena_size = bands_size + labels_size;
+    work->arena_size = bands_size;
 
     // Allocate arena
     work->arena = (char*)calloc(work->arena_size, 1);
@@ -1319,11 +1300,6 @@ void work_init(Work* work, size_t band_capacity, size_t label_capacity) {
     work->bands.length = 0;
     work->bands.capacity = band_capacity;
 
-    // Set up labels array
-    work->labels.ptr = work->arena + bands_size;
-    work->labels.count = 0;
-    work->labels.capacity = label_capacity;
-
     // Initialize filename, hash, and list pointers
     work->filename[0] = '\0';
     work->saved_hash = 0;
@@ -1331,22 +1307,20 @@ void work_init(Work* work, size_t band_capacity, size_t label_capacity) {
     work->next = NULL;
 }
 
-Work* work_new(size_t band_capacity, size_t label_capacity) {
+Work* work_new(size_t band_capacity) {
     Work* work = (Work*)malloc(sizeof(Work));
-    work_init(work, band_capacity, label_capacity);
+    work_init(work, band_capacity);
     return work;
 }
 
 Work* work_copy(Work* source) {
-    Work* work = work_new(source->bands.capacity, source->labels.capacity);
+    Work* work = work_new(source->bands.capacity);
 
     for (size_t i = 0; i < source->bands.length; i++) {
         Band* src_band = &source->bands.ptr[i];
         Band new_band = *src_band;
 
-        if (src_band->label) {
-            new_band.label = label_array_allocate_string(&work->labels, src_band->label);
-        }
+        label_copy(new_band.label, src_band->label);
 
         band_array_add(&work->bands, new_band);
     }
@@ -1435,7 +1409,7 @@ void work_save(Work* work, const char* filename) {
         fprintf(file, "  kind: %s\n", band_kind_to_string(band->kind));
         fprintf(file, "  line_kind: %s\n", line_kind_to_string(band->line_kind));
         fprintf(file, "  color: %f %f %f\n", band->color.hue, band->color.lightness, band->color.chroma);
-        fprintf(file, "  label: \"%s\"\n", band->label ? band->label : "");
+        fprintf(file, "  label: \"%s\"\n", band->label);
         fprintf(file, "  wavelength_scale: %d\n", band->wavelength_scale);
         fprintf(file, "  wave_inverted: %s\n", band->wave_inverted ? "true" : "false");
         fprintf(file, "  wave_half_period: %s\n", band->wave_half_period ? "true" : "false");
@@ -1481,7 +1455,6 @@ bool work_load(Work* work, const char* filename) {
     work->filename[255] = '\0';
 
     work->bands.length = 0;
-    work->labels.count = 0;
 
     Band temp_band = {0};
     char temp_label[256] = {0};
@@ -1497,8 +1470,7 @@ bool work_load(Work* work, const char* filename) {
             temp_label[0] = '\0';
         } else if (trimmed[0] == '}') {
             if (in_record) {
-                char* label_ptr = label_array_allocate_string(&work->labels, temp_label);
-                temp_band.label = label_ptr;
+                label_copy(temp_band.label, temp_label);
                 band_array_add(&work->bands, temp_band);
                 in_record = false;
             }
@@ -1581,7 +1553,7 @@ Layout render_work_ui(AppState* state, Layout layout) {
 
     // Work preset buttons
     if (render_button(state, "New", layout.next, button_size, INPUT_NONE)) {
-        Work* new_work = work_new(128, 128);
+        Work* new_work = work_new(128);
         new_work->prev = state->work;
         new_work->next = state->work->next;
         if (state->work->next) state->work->next->prev = new_work;
@@ -1687,7 +1659,7 @@ Layout render_shelf(AppState* state, Layout layout) {
         } else {
             for (size_t i = 0; i < file_list.count; i++) {
                 if (render_button(state, file_list.files[i], layout.next, button_size, INPUT_NONE)) {
-                    Work* loaded = work_new(128, 128);
+                    Work* loaded = work_new(128);
                     if (work_load(loaded, file_list.files[i])) {
                         loaded->prev = state->work;
                         loaded->next = state->work->next;
@@ -1768,7 +1740,7 @@ Layout render_lens(AppState* state, Layout layout) {
         V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
         V2 split_size = {25, 22};
         if (render_button(state, "S", split_pos, split_size, INPUT_NONE)) {
-            band_array_split(&state->work->bands, i, &state->work->labels);
+            band_array_split(&state->work->bands, i);
             break;  // Exit loop since array has changed
         }
 
@@ -1776,7 +1748,7 @@ Layout render_lens(AppState* state, Layout layout) {
         V2 copy_pos = {WINDOW_WIDTH - 50, layout.next.y + 25};
         V2 copy_size = {25, 22};
         if (render_button(state, "C", copy_pos, copy_size, INPUT_NONE)) {
-            band_array_copy_after(&state->work->bands, i, &state->work->labels);
+            band_array_copy_after(&state->work->bands, i);
             break;  // Exit loop since array has changed
         }
 
@@ -2104,7 +2076,7 @@ void render_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, 
 }
 
 void collect_label(AppState* state, Band* band, Interval transformed) {
-    if (!band->label || band->label[0] == '\0') return;
+    if (band->label[0] == '\0') return;
 
     V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
     world_pos = v2_add(world_pos, band->label_offset);
@@ -2321,7 +2293,7 @@ int main(int argc, char* argv[]) {
     state.sliver_camera.scale = 0.1f;   // Scale 1:1 shows full 0-1 in viewport, which maps to 0-10 in our coordinates
 
     // Initialize work (bands and labels in single arena)
-    state.work = work_new(128, 128);  // 128 bands, 128 labels
+    state.work = work_new(128);  // 128 bands
 
     string_builder_init(&state.string_builder);
 

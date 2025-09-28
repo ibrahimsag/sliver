@@ -188,10 +188,10 @@ Numeric input fields with multiple interaction modes:
 ## Band System
 - **Interval-based Bands**: Bands use `Interval` struct with start and end positions
 - **Label System**: 
-  - Each band has a `char*` label pointing into a centralized `LabelBuffer`
-  - Default labels cycle through alphabet (A-Z) based on buffer position
+  - Each band has a `char label[32]` inline string
+  - Default labels cycle through alphabet (A-Z) based on band index
   - Text input field for editing labels in UI
-  - Memory managed via fixed 4KB buffer with 32-byte slots
+  - `label_copy()` helper function for safe string copying
   - **Label Anchoring**: 9-point anchor system for precise label placement
     - Anchors: TOP_LEFT, TOP_CENTER, TOP_RIGHT, MIDDLE_LEFT, CENTER, MIDDLE_RIGHT, BOTTOM_LEFT, BOTTOM_CENTER, BOTTOM_RIGHT
     - Anchor determines which point of the square the label aligns to
@@ -249,10 +249,10 @@ Numeric input fields with multiple interaction modes:
 
 ### Memory Architecture
 - **Arena Allocation**: Single contiguous memory block per work
-  - Bands array at start of arena
-  - Label buffer follows bands array
+  - Bands array stored in arena
+  - Each band contains inline `char[32]` label
   - Single `free()` cleans up entire work
-- **Deep Copying**: `work_copy()` remaps label pointers to new arena
+- **Deep Copying**: `work_copy()` copies band structs including inline labels
 
 ## Rendering System
 
