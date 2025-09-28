@@ -2170,6 +2170,55 @@ int calculate_edge_flags(Corner selected_corner, float start, float end) {
     return edge_flags;
 }
 
+void draw_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Diagonal diagonal, Camera* camera, int edge_flags) {
+    // Clamp to visible range [0, 1]
+    transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
+    transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
+
+    // Get the two diagonal endpoints for this band
+    V2 p1 = v2_lerp(diagonal.start, diagonal.end, transformed.start);
+    V2 p2 = v2_lerp(diagonal.start, diagonal.end, transformed.end);
+
+    // Calculate bounding box
+    float min_x = fminf(p1.x, p2.x);
+    float max_x = fmaxf(p1.x, p2.x);
+    float min_y = fminf(p1.y, p2.y);
+    float max_y = fmaxf(p1.y, p2.y);
+
+    // Convert LCH to SDL_Color for rendering
+    SDL_Color sdl_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
+
+    switch (band->line_kind) {
+        case KIND_ROUNDED: {
+            float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
+            float extend = base_radius * (1.0f - 1.0f/sqrtf(2));
+            draw_rounded_rect_geometry(gb,
+                                      min_x - extend, min_y - extend,
+                                      (max_x - min_x) + 2 * extend,
+                                      (max_y - min_y) + 2 * extend,
+                                      base_radius, sdl_color, camera, edge_flags);
+            break;
+        }
+        case KIND_DOUBLE:
+            draw_double_rect_geometry(gb,
+                                    min_x, min_y, max_x - min_x, max_y - min_y,
+                                    sdl_color, camera, edge_flags);
+            break;
+        case KIND_WAVE:
+            draw_wave_rect_geometry(gb,
+                                  min_x, min_y, max_x - min_x, max_y - min_y,
+                                  sdl_color, camera, band->wavelength_scale,
+                                  band->wave_inverted, band->wave_half_period, edge_flags);
+            break;
+        case KIND_SHARP:
+        default:
+            draw_rounded_rect_geometry(gb,
+                                      min_x, min_y, max_x - min_x, max_y - min_y,
+                                      0, sdl_color, camera, edge_flags);
+            break;
+    }
+}
+
 void render(AppState* state) {
     // Regenerate squares from bands every frame (immediate mode)
     flatten_bands(&state->work->bands, &state->flattened);
@@ -2228,10 +2277,10 @@ void render(AppState* state) {
 
         // Draw flattened bands along diagonal
         for (size_t i = 0; i < state->flattened.length; i++) {
-            Band* sq = &state->flattened.ptr[i];
+            Band* band = &state->flattened.ptr[i];
 
             // Apply sliver transform to the square's interval (from 0-10 space to viewport space)
-            Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
+            Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
 
             // Calculate edge visibility flags and skip if no edges visible
             int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
@@ -2239,52 +2288,8 @@ void render(AppState* state) {
                 continue;
             }
 
-            // Clamp to visible range [0, 1]
-            transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
-            transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
-
-            // Get the two diagonal endpoints for this band
-            V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.start);
-            V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, transformed.end);
-
-            // Draw band using geometry buffer based on line_kind
-            float min_x = fminf(p1.x, p2.x);
-            float max_x = fmaxf(p1.x, p2.x);
-            float min_y = fminf(p1.y, p2.y);
-            float max_y = fmaxf(p1.y, p2.y);
-
-            // Convert LCH to SDL_Color for rendering
-            SDL_Color sdl_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
-
-            switch (sq->line_kind) {
-                case KIND_ROUNDED: {
-                    float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
-                    float extend = base_radius * (1.0f - 1.0f/sqrtf(2));
-                    draw_rounded_rect_geometry(&state->render_ctx.geometry,
-                                              min_x - extend, min_y - extend,
-                                              (max_x - min_x) + 2 * extend,
-                                              (max_y - min_y) + 2 * extend,
-                                              base_radius, sdl_color, &state->camera, edge_flags);
-                    break;
-                }
-                case KIND_DOUBLE:
-                    draw_double_rect_geometry(&state->render_ctx.geometry,
-                                            min_x, min_y, max_x - min_x, max_y - min_y,
-                                            sdl_color, &state->camera, edge_flags);
-                    break;
-                case KIND_WAVE:
-                    draw_wave_rect_geometry(&state->render_ctx.geometry,
-                                          min_x, min_y, max_x - min_x, max_y - min_y,
-                                          sdl_color, &state->camera, sq->wavelength_scale,
-                                          sq->wave_inverted, sq->wave_half_period, edge_flags);
-                    break;
-                case KIND_SHARP:
-                default:
-                    draw_rounded_rect_geometry(&state->render_ctx.geometry,
-                                              min_x, min_y, max_x - min_x, max_y - min_y,
-                                              0, sdl_color, &state->camera, edge_flags);
-                    break;
-            }
+            // Draw band geometry
+            draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
         }
 
         // Draw orientation edge from selected corner using geometry buffer
