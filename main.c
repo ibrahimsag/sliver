@@ -1058,7 +1058,7 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
 }
 
 // Draw wave rectangle with geometry buffer
-void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period, int hide_flags) {
+void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period, int edge_flags) {
     float thickness = 2.0f;
     float amplitude = thickness * 2.0f;  // Amplitude is 3x thickness
     float wavelength = thickness * 8.0f * (1 << wavelength_scale);  // Wavelength is 8x thickness * 2^scale
@@ -1076,18 +1076,18 @@ void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, floa
     float screen_wavelength = wavelength * camera->scale;
 
     // Draw four wavy sides (skip hidden edges)
-    if (!(hide_flags & EDGE_TOP))
+    if (edge_flags & EDGE_TOP)
         geometry_buffer_add_wave_line(gb, tl, tr, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Top
-    if (!(hide_flags & EDGE_RIGHT))
+    if (edge_flags & EDGE_RIGHT)
         geometry_buffer_add_wave_line(gb, tr, br, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Right
-    if (!(hide_flags & EDGE_BOTTOM))
+    if (edge_flags & EDGE_BOTTOM)
         geometry_buffer_add_wave_line(gb, br, bl, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Bottom
-    if (!(hide_flags & EDGE_LEFT))
+    if (edge_flags & EDGE_LEFT)
         geometry_buffer_add_wave_line(gb, bl, tl, thickness, screen_amplitude, screen_wavelength, color, inverted, half_period);  // Left
 }
 
 // Draw double-line rectangle with geometry buffer
-void draw_double_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int hide_flags) {
+void draw_double_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int edge_flags) {
     float thickness = 2.0f;
     float gap = thickness * 2.0f;  // Gap between lines equals thickness
 
@@ -1097,13 +1097,13 @@ void draw_double_rect_geometry(GeometryBuffer* gb, float x, float y, float w, fl
     V2 br_outer = world_to_screen((V2){x + w, y + h}, camera);
     V2 bl_outer = world_to_screen((V2){x, y + h}, camera);
 
-    if (!(hide_flags & EDGE_TOP))
+    if (edge_flags & EDGE_TOP)
         geometry_buffer_add_line(gb, tl_outer, tr_outer, thickness, color);
-    if (!(hide_flags & EDGE_RIGHT))
+    if (edge_flags & EDGE_RIGHT)
         geometry_buffer_add_line(gb, tr_outer, br_outer, thickness, color);
-    if (!(hide_flags & EDGE_BOTTOM))
+    if (edge_flags & EDGE_BOTTOM)
         geometry_buffer_add_line(gb, br_outer, bl_outer, thickness, color);
-    if (!(hide_flags & EDGE_LEFT))
+    if (edge_flags & EDGE_LEFT)
         geometry_buffer_add_line(gb, bl_outer, tl_outer, thickness, color);
 
     // Inner rectangle (inset by gap)
@@ -1113,18 +1113,18 @@ void draw_double_rect_geometry(GeometryBuffer* gb, float x, float y, float w, fl
     V2 br_inner = world_to_screen((V2){x + w - inset, y + h - inset}, camera);
     V2 bl_inner = world_to_screen((V2){x + inset, y + h - inset}, camera);
 
-    if (!(hide_flags & EDGE_TOP))
+    if (edge_flags & EDGE_TOP)
         geometry_buffer_add_line(gb, tl_inner, tr_inner, thickness, color);
-    if (!(hide_flags & EDGE_RIGHT))
+    if (edge_flags & EDGE_RIGHT)
         geometry_buffer_add_line(gb, tr_inner, br_inner, thickness, color);
-    if (!(hide_flags & EDGE_BOTTOM))
+    if (edge_flags & EDGE_BOTTOM)
         geometry_buffer_add_line(gb, br_inner, bl_inner, thickness, color);
-    if (!(hide_flags & EDGE_LEFT))
+    if (edge_flags & EDGE_LEFT)
         geometry_buffer_add_line(gb, bl_inner, tl_inner, thickness, color);
 }
 
 // Draw rounded rectangle with geometry buffer
-void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, float radius, SDL_Color color, Camera* camera, int hide_flags) {
+void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, float radius, SDL_Color color, Camera* camera, int edge_flags) {
     if (radius <= 0) {
         // Draw regular rectangle with thick lines
         V2 tl = world_to_screen((V2){x, y}, camera);
@@ -1132,13 +1132,13 @@ void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, f
         V2 br = world_to_screen((V2){x + w, y + h}, camera);
         V2 bl = world_to_screen((V2){x, y + h}, camera);
 
-        if (!(hide_flags & EDGE_TOP))
+        if (edge_flags & EDGE_TOP)
             geometry_buffer_add_line(gb, tl, tr, 2.0f, color);
-        if (!(hide_flags & EDGE_RIGHT))
+        if (edge_flags & EDGE_RIGHT)
             geometry_buffer_add_line(gb, tr, br, 2.0f, color);
-        if (!(hide_flags & EDGE_BOTTOM))
+        if (edge_flags & EDGE_BOTTOM)
             geometry_buffer_add_line(gb, br, bl, 2.0f, color);
-        if (!(hide_flags & EDGE_LEFT))
+        if (edge_flags & EDGE_LEFT)
             geometry_buffer_add_line(gb, bl, tl, 2.0f, color);
     } else {
         // Draw rounded rectangle with arcs at corners
@@ -1148,28 +1148,28 @@ void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, f
         V2 bl_inner = world_to_screen((V2){x + radius, y + h - radius}, camera);
 
         // Top line
-        if (!(hide_flags & EDGE_TOP))
+        if (edge_flags & EDGE_TOP)
             geometry_buffer_add_line(gb,
                 world_to_screen((V2){x + radius, y}, camera),
                 world_to_screen((V2){x + w - radius, y}, camera),
                 2.0f, color);
 
         // Right line
-        if (!(hide_flags & EDGE_RIGHT))
+        if (edge_flags & EDGE_RIGHT)
             geometry_buffer_add_line(gb,
                 world_to_screen((V2){x + w, y + radius}, camera),
                 world_to_screen((V2){x + w, y + h - radius}, camera),
                 2.0f, color);
 
         // Bottom line
-        if (!(hide_flags & EDGE_BOTTOM))
+        if (edge_flags & EDGE_BOTTOM)
             geometry_buffer_add_line(gb,
                 world_to_screen((V2){x + w - radius, y + h}, camera),
                 world_to_screen((V2){x + radius, y + h}, camera),
                 2.0f, color);
 
         // Left line
-        if (!(hide_flags & EDGE_LEFT))
+        if (edge_flags & EDGE_LEFT)
             geometry_buffer_add_line(gb,
                 world_to_screen((V2){x, y + h - radius}, camera),
                 world_to_screen((V2){x, y + radius}, camera),
@@ -1179,13 +1179,13 @@ void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, f
         float screen_radius = radius * camera->scale;
 
         // Corner arcs (only draw if adjacent edges are visible)
-        if (!(hide_flags & EDGE_TOP) && !(hide_flags & EDGE_LEFT))
+        if ((edge_flags & EDGE_TOP) && (edge_flags & EDGE_LEFT))
             geometry_buffer_add_arc(gb, tl_inner, screen_radius, M_PI, M_PI * 1.5f, 2.0f, color, 8);
-        if (!(hide_flags & EDGE_TOP) && !(hide_flags & EDGE_RIGHT))
+        if ((edge_flags & EDGE_TOP) && (edge_flags & EDGE_RIGHT))
             geometry_buffer_add_arc(gb, tr_inner, screen_radius, M_PI * 1.5f, M_PI * 2.0f, 2.0f, color, 8);
-        if (!(hide_flags & EDGE_BOTTOM) && !(hide_flags & EDGE_RIGHT))
+        if ((edge_flags & EDGE_BOTTOM) && (edge_flags & EDGE_RIGHT))
             geometry_buffer_add_arc(gb, br_inner, screen_radius, 0, M_PI * 0.5f, 2.0f, color, 8);
-        if (!(hide_flags & EDGE_BOTTOM) && !(hide_flags & EDGE_LEFT))
+        if ((edge_flags & EDGE_BOTTOM) && (edge_flags & EDGE_LEFT))
             geometry_buffer_add_arc(gb, bl_inner, screen_radius, M_PI * 0.5f, M_PI, 2.0f, color, 8);
     }
 }
@@ -2141,6 +2141,35 @@ void render_ui_panel(AppState* state) {
     }
 }
 
+int calculate_edge_flags(Corner selected_corner, float start, float end) {
+    int edge_flags = EDGE_TOP | EDGE_RIGHT | EDGE_BOTTOM | EDGE_LEFT;  // Start with all visible
+
+    bool start_in_range = (start >= 0.0f && start <= 1.0f);
+    bool end_in_range = (end >= 0.0f && end <= 1.0f);
+
+    switch (selected_corner) {
+        case CORNER_TL:  // BL→TR diagonal
+            if (!start_in_range) edge_flags &= ~(EDGE_LEFT | EDGE_BOTTOM);
+            if (!end_in_range) edge_flags &= ~(EDGE_TOP | EDGE_RIGHT);
+            break;
+        case CORNER_TR:  // TL→BR diagonal
+            if (!start_in_range) edge_flags &= ~(EDGE_TOP | EDGE_LEFT);
+            if (!end_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_RIGHT);
+            break;
+        case CORNER_BR:  // TR→BL diagonal
+            if (!start_in_range) edge_flags &= ~(EDGE_TOP | EDGE_RIGHT);
+            if (!end_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_LEFT);
+            break;
+        case CORNER_BL:  // BR→TL diagonal
+            if (!start_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_RIGHT);
+            if (!end_in_range) edge_flags &= ~(EDGE_TOP | EDGE_LEFT);
+            break;
+        default:
+            break;
+    }
+    return edge_flags;
+}
+
 void render(AppState* state) {
     // Regenerate squares from bands every frame (immediate mode)
     flatten_bands(&state->work->bands, &state->flattened);
@@ -2204,38 +2233,10 @@ void render(AppState* state) {
             // Apply sliver transform to the square's interval (from 0-10 space to viewport space)
             Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
 
-            // Convert to 0-1 range for diagonal lerp (divide by 10 since intervals are in 0-10)
-            // Skip bands completely outside the visible range
-            if ((transformed.start > 1.0f && transformed.end > 1.0f) ||
-                (transformed.start < 0.0f && transformed.end < 0.0f)) {
+            // Calculate edge visibility flags and skip if no edges visible
+            int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+            if (edge_flags == 0) {
                 continue;
-            }
-
-            // Check which endpoints are in range before clamping
-            bool start_in_range = (transformed.start >= 0.0f && transformed.start <= 1.0f);
-            bool end_in_range = (transformed.end >= 0.0f && transformed.end <= 1.0f);
-
-            // Calculate hide flags based on diagonal orientation
-            int hide_flags = 0;
-            switch (state->selected_corner) {
-                case CORNER_TL:  // BL→TR diagonal
-                    if (!start_in_range) hide_flags |= EDGE_LEFT | EDGE_BOTTOM;
-                    if (!end_in_range) hide_flags |= EDGE_TOP | EDGE_RIGHT;
-                    break;
-                case CORNER_TR:  // TL→BR diagonal
-                    if (!start_in_range) hide_flags |= EDGE_TOP | EDGE_LEFT;
-                    if (!end_in_range) hide_flags |= EDGE_BOTTOM | EDGE_RIGHT;
-                    break;
-                case CORNER_BR:  // TR→BL diagonal
-                    if (!start_in_range) hide_flags |= EDGE_TOP | EDGE_RIGHT;
-                    if (!end_in_range) hide_flags |= EDGE_BOTTOM | EDGE_LEFT;
-                    break;
-                case CORNER_BL:  // BR→TL diagonal
-                    if (!start_in_range) hide_flags |= EDGE_BOTTOM | EDGE_RIGHT;
-                    if (!end_in_range) hide_flags |= EDGE_TOP | EDGE_LEFT;
-                    break;
-                default:
-                    break;
             }
 
             // Clamp to visible range [0, 1]
@@ -2263,25 +2264,25 @@ void render(AppState* state) {
                                               min_x - extend, min_y - extend,
                                               (max_x - min_x) + 2 * extend,
                                               (max_y - min_y) + 2 * extend,
-                                              base_radius, sdl_color, &state->camera, hide_flags);
+                                              base_radius, sdl_color, &state->camera, edge_flags);
                     break;
                 }
                 case KIND_DOUBLE:
                     draw_double_rect_geometry(&state->render_ctx.geometry,
                                             min_x, min_y, max_x - min_x, max_y - min_y,
-                                            sdl_color, &state->camera, hide_flags);
+                                            sdl_color, &state->camera, edge_flags);
                     break;
                 case KIND_WAVE:
                     draw_wave_rect_geometry(&state->render_ctx.geometry,
                                           min_x, min_y, max_x - min_x, max_y - min_y,
                                           sdl_color, &state->camera, sq->wavelength_scale,
-                                          sq->wave_inverted, sq->wave_half_period, hide_flags);
+                                          sq->wave_inverted, sq->wave_half_period, edge_flags);
                     break;
                 case KIND_SHARP:
                 default:
                     draw_rounded_rect_geometry(&state->render_ctx.geometry,
                                               min_x, min_y, max_x - min_x, max_y - min_y,
-                                              0, sdl_color, &state->camera, hide_flags);
+                                              0, sdl_color, &state->camera, edge_flags);
                     break;
             }
         }
@@ -2311,9 +2312,9 @@ void render(AppState* state) {
         // Apply sliver transform to the band's interval
         Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
 
-        // Skip bands outside visible range
-        if ((transformed.start > 1.0f && transformed.end > 1.0f) ||
-            (transformed.start < 0.0f && transformed.end < 0.0f)) {
+        // Skip if no edges visible
+        int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+        if (edge_flags == 0) {
             continue;
         }
 
