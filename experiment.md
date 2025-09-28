@@ -189,10 +189,16 @@ Numeric input fields with multiple interaction modes:
 - **Interval-based Bands**: Bands use `Interval` struct with start and end positions
 - **Label System**: 
   - Each band has a `char*` label pointing into a centralized `LabelBuffer`
-  - Labels displayed at bottom-right of rendered squares (top-left of text aligned with square's bottom-right corner)
   - Default labels cycle through alphabet (A-Z) based on buffer position
   - Text input field for editing labels in UI
   - Memory managed via fixed 4KB buffer with 32-byte slots
+  - **Label Anchoring**: 9-point anchor system for precise label placement
+    - Anchors: TOP_LEFT, TOP_CENTER, TOP_RIGHT, MIDDLE_LEFT, CENTER, MIDDLE_RIGHT, BOTTOM_LEFT, BOTTOM_CENTER, BOTTOM_RIGHT
+    - Anchor determines which point of the square the label aligns to
+    - UI: 3×3 grid button where clicking each cell selects corresponding anchor position
+  - **Label Offset**: Fine-tune position with (x, y) pixel offset from anchor point
+    - Draggable numeric fields for precise positioning
+    - Offset applied after anchor positioning for pixel-perfect control
 - **Band Kinds**:
   - `BAND_CLOSED`: Normal finite interval
   - `BAND_OPEN`: Automatically triggered when start ≥ end, creates two intervals extending to ±infinity
@@ -213,6 +219,40 @@ Numeric input fields with multiple interaction modes:
   - Up/Dn navigation buttons to scroll through band list when there are many bands
   - Labels: TL/BR button toggles label position between top-left and bottom-right of squares
 - Per-frame band flattening for immediate updates
+
+## Work Management System
+
+### Multiple Works
+- **Linked List**: Works connected via `prev`/`next` pointers for navigation
+- **Navigation**: `<` and `>` buttons to move between works (disabled when unavailable)
+- **New**: Creates empty work and appends to list after current
+- **Copy**: Duplicates current work (clears filename) and appends to list
+- **Close**: Removes current work from list (disabled if only one work)
+- **Load**: Opens `.wo` file and appends as new work to list
+
+### File Operations
+- **Store Button**: Opens save dialog with filename suggestion
+  - Uses current filename if available for save-back
+  - Otherwise generates timestamped filename: `work_YYYY-MM-DD_HH-MM-SS.wo`
+- **Load Button**: Opens file browser showing `.wo` files from current directory
+- **Modification Tracking**: 
+  - FNV-1a hash computed over work arena memory
+  - Hash updated after save/load operations
+  - Modified indicator (*) appears in orange when unsaved changes detected
+  - Filename displayed with asterisk when modified
+  - Shows "(unsaved)" for works without filename
+- **File Format**: 
+  - Header: `WORK SLIVER 0001` (version 1, zero-padded)
+  - Version checking: rejects files with version > current (forward compatibility check)
+  - Allows loading older versions (backward compatibility)
+  - Each band as structured text block with all properties
+
+### Memory Architecture
+- **Arena Allocation**: Single contiguous memory block per work
+  - Bands array at start of arena
+  - Label buffer follows bands array
+  - Single `free()` cleans up entire work
+- **Deep Copying**: `work_copy()` remaps label pointers to new arena
 
 ## Rendering System
 
