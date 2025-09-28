@@ -371,7 +371,29 @@ int calculate_edge_flags(Corner selected_corner, float start, float end) {
     return edge_flags;
 }
 
-V2 anchor_to_position(LabelAnchor anchor, Interval transformed, Diagonal diagonal) {
+LabelAnchor rotate_anchor_for_corner(LabelAnchor anchor, Corner corner) {
+    if (corner == CORNER_BR) return anchor;
+
+    int r = anchor / 3;
+    int c = anchor % 3;
+
+    switch (corner) {
+        case CORNER_TR:
+              // 90° rotation: (2-c, r) = (r+1, c+1) . (-c, r) . (r-1, c-1)
+            return (LabelAnchor)((2 - c) * 3 + r);
+        case CORNER_TL:
+              // 180° rotation: (2-r, 2-c) = (2-c, r) . (2-c, r)
+            return (LabelAnchor)((2 - r) * 3 + (2 - c));
+        case CORNER_BL:
+              // 270° rotation: (c, 2-r) = (2-r, 2-c) . (2-c, r)
+            return (LabelAnchor)(c * 3 + (2 - r));
+        default:
+            return anchor;
+    }
+}
+
+V2 anchor_to_position(LabelAnchor anchor, Interval transformed, Diagonal diagonal, Corner corner) {
+    anchor = rotate_anchor_for_corner(anchor, corner);
     // Clamp to visible range [0, 1]
     transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
     transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
@@ -649,6 +671,24 @@ void render_text(AppState* state, const char* text, V2 position, SDL_Color color
 
 // Render 3x3 anchor buttons for label position selection
 // Returns the selected position (0-8) or -1 if no selection
+LabelAnchor inverse_rotate_anchor_for_corner(LabelAnchor anchor, Corner corner) {
+    if (corner == CORNER_BR) return anchor;
+
+    int r = anchor / 3;
+    int c = anchor % 3;
+
+    switch (corner) {
+        case CORNER_TR:
+            return (LabelAnchor)(c * 3 + (2 - r));
+        case CORNER_TL:
+            return (LabelAnchor)((2 - r) * 3 + (2 - c));
+        case CORNER_BL:
+            return (LabelAnchor)((2 - c) * 3 + r);
+        default:
+            return anchor;
+    }
+}
+
 int render_anchor_buttons(AppState* state, V2 position, float size, LabelAnchor current) {
     float button_size = size / 3.0f;
     int selected = -1;
@@ -656,6 +696,7 @@ int render_anchor_buttons(AppState* state, V2 position, float size, LabelAnchor 
     for (int row = 0; row < 3; row++) {
         for (int col = 0; col < 3; col++) {
             int index = row * 3 + col;
+            LabelAnchor rotated = inverse_rotate_anchor_for_corner(index, state->selected_corner);
             V2 button_pos = {
                 position.x + col * button_size,
                 position.y + row * button_size
@@ -673,7 +714,7 @@ int render_anchor_buttons(AppState* state, V2 position, float size, LabelAnchor 
                         state->mouse_pos.y >= rect.y && state->mouse_pos.y < rect.y + rect.h;
 
             // Draw background
-            if (index == current) {
+            if (rotated == current) {
                 SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
             } else if (hover) {
                 SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
@@ -698,7 +739,7 @@ int render_anchor_buttons(AppState* state, V2 position, float size, LabelAnchor 
             // Check for click
             if (hover && state->mouse_pressed && !state->mouse_was_pressed &&
                 state->dragging_input_field == NULL) {
-                selected = index;
+                selected = rotated;
             }
         }
     }
@@ -1163,7 +1204,7 @@ void label_copy(char dest[32], const char* src) {
 void collect_label(AppState* state, Band* band, Interval transformed) {
     if (band->label[0] == '\0') return;
 
-    V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
+    V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal, state->selected_corner);
     world_pos = v2_add(world_pos, band->label_offset);
     V2 label_pos = world_to_screen(world_pos, &state->camera);
 
