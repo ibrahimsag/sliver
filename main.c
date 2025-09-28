@@ -2089,17 +2089,46 @@ void render_work(AppState* state) {
     for (size_t i = 0; i < state->work->bands.length; i++) {
         Band* band = &state->work->bands.ptr[i];
 
-        // Apply sliver transform to the band's interval (from 0-10 space to viewport space)
-        Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
+        if (band->kind == BAND_OPEN) {
+            // For open bands, draw two intervals: (-inf, end] and [start, +inf)
+            {
+                Interval interval = {-1000.0f, band->interval.end};
+                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
+                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+                if (edge_flags != 0) {
+                    draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
+                }
+            }
+            {
+                Interval interval = {band->interval.start, 1000.0f};
+                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
+                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+                if (edge_flags != 0) {
+                    draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
+                }
+            }
+        } else {
+            // Normal closed band behavior with repeat support
+            int count = band->repeat + 1;  // repeat=0 means 1 interval
+            float size = band->interval.end - band->interval.start;
 
-        // Calculate edge visibility flags and skip if no edges visible
-        int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
-        if (edge_flags == 0) {
-            continue;
+            for (int j = 0; j < count; j++) {
+                Interval interval = {
+                    band->interval.start + j * band->stride,
+                    band->interval.start + j * band->stride + size
+                };
+                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
+
+                // Calculate edge visibility flags and skip if no edges visible
+                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+                if (edge_flags == 0) {
+                    continue;
+                }
+
+                // Draw band geometry
+                draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
+            }
         }
-
-        // Draw band geometry
-        draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
     }
 }
 
@@ -2111,22 +2140,59 @@ void render_labels(AppState* state) {
         // Skip if no label
         if (!band->label || band->label[0] == '\0') continue;
 
-        // Apply sliver transform to the band's interval
-        Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
+        if (band->kind == BAND_OPEN) {
+            // For open bands, draw label twice (once for each interval)
+            {
+                Interval interval = {-1000.0f, band->interval.end};
+                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
+                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+                if (edge_flags != 0) {
+                    V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
+                    world_pos = v2_add(world_pos, band->label_offset);
+                    V2 label_pos = world_to_screen(world_pos, &state->camera);
 
-        // Skip if no edges visible
-        int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
-        if (edge_flags == 0) {
-            continue;
+                    SDL_Color label_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
+                    render_text(state, band->label, label_pos, label_color);
+                }
+            }
+            {
+                Interval interval = {band->interval.start, 1000.0f};
+                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
+                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+                if (edge_flags != 0) {
+                    V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
+                    world_pos = v2_add(world_pos, band->label_offset);
+                    V2 label_pos = world_to_screen(world_pos, &state->camera);
+
+                    SDL_Color label_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
+                    render_text(state, band->label, label_pos, label_color);
+                }
+            }
+        } else {
+            // Normal closed band behavior with repeat support
+            int count = band->repeat + 1;  // repeat=0 means 1 interval
+            float size = band->interval.end - band->interval.start;
+
+            for (int j = 0; j < count; j++) {
+                Interval interval = {
+                    band->interval.start + j * band->stride,
+                    band->interval.start + j * band->stride + size
+                };
+                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
+
+                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+                if (edge_flags == 0) {
+                    continue;
+                }
+
+                V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
+                world_pos = v2_add(world_pos, band->label_offset);
+                V2 label_pos = world_to_screen(world_pos, &state->camera);
+
+                SDL_Color label_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
+                render_text(state, band->label, label_pos, label_color);
+            }
         }
-
-        // Position label based on band's label anchor
-        V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
-        world_pos = v2_add(world_pos, band->label_offset);
-        V2 label_pos = world_to_screen(world_pos, &state->camera);
-
-        SDL_Color label_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
-        render_text(state, band->label, label_pos, label_color);
     }
 
 }
