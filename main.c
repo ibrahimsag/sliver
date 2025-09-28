@@ -1303,15 +1303,13 @@ void band_array_split(BandArray* arr, size_t index, LabelArray* lb) {
 }
 
 // Flatten bands into individual bands (one per interval)
-void flatten_bands(BandArray* source, BandArray* dest) {
-    band_array_clear(dest);
-
-    for (size_t i = 0; i < source->length; i++) {
-        Band* band = &source->ptr[i];
+void apply_band_rules(BandArray* bands) {
+    for (size_t i = 0; i < bands->length; i++) {
+        Band* band = &bands->ptr[i];
 
         // If this band should follow the previous one, update its start position only
         if (band->follow_previous && i > 0) {
-            Band* prev_band = &source->ptr[i - 1];
+            Band* prev_band = &bands->ptr[i - 1];
             band->interval.start = prev_band->interval.end;
             // Keep the end position as-is, don't move it
         }
@@ -1320,6 +1318,14 @@ void flatten_bands(BandArray* source, BandArray* dest) {
         if (band->interval.start >= band->interval.end) {
             band->kind = BAND_OPEN;
         }
+    }
+}
+
+void flatten_bands(BandArray* source, BandArray* dest) {
+    band_array_clear(dest);
+
+    for (size_t i = 0; i < source->length; i++) {
+        Band* band = &source->ptr[i];
 
         if (band->kind == BAND_OPEN) {
             // For open bands, create two intervals: (-inf, end] and [start, +inf)
@@ -2095,6 +2101,9 @@ Layout draw_lens(AppState* state, Layout layout) {
 
         advance_vertical(&layout, 10);  // Space between bands
     }
+
+    // Apply band rules after all UI changes
+    apply_band_rules(&state->work->bands);
 
     return layout;
 }
