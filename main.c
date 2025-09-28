@@ -150,6 +150,7 @@ typedef struct {
     bool follow_previous;  // If true, start position automatically follows end of previous band
     LabelAnchor label_anchor;  // Anchor position for label (9 positions in 3x3 grid)
     V2 label_offset;  // Additional offset from anchor position
+    bool label_fixed;  // If true, label uses LABEL_TOP_LEFT alignment, otherwise opposite alignment
 } Band;
 
 typedef struct {
@@ -1394,7 +1395,8 @@ void add_random_band(Atelier* atelier) {
         .label_anchor = LABEL_TOP_LEFT,  // Default label anchor
         .label_offset = {0, 0},  // No offset
         .wave_half_period = false,
-        .follow_previous = false
+        .follow_previous = false,
+        .label_fixed = false
     };
     snprintf(new_band.label, 32, "%c", 'A' + (char)(atelier->work->bands.length % 26));
 
@@ -1423,7 +1425,8 @@ void add_open_band(Atelier* atelier) {
         .wave_half_period = false,
         .follow_previous = false,
         .label_anchor = LABEL_TOP_LEFT,  // Default label anchor
-        .label_offset = {0, 0}  // No offset
+        .label_offset = {0, 0},  // No offset
+        .label_fixed = false
     };
     snprintf(new_band.label, 32, "%c", 'A' + (char)(atelier->work->bands.length % 26));
 
@@ -1569,6 +1572,7 @@ void work_save(Work* work, const char* filename, StringBuilder* sb) {
         string_append(sb, "  follow_previous: %s\n", band->follow_previous ? "true" : "false");
         string_append(sb, "  label_anchor: %d\n", band->label_anchor);
         string_append(sb, "  label_offset: %f %f\n", band->label_offset.x, band->label_offset.y);
+        string_append(sb, "  label_fixed: %s\n", band->label_fixed ? "true" : "false");
         string_append(sb, "}\n");
     }
 
@@ -1682,6 +1686,10 @@ bool work_load(Work* work, const char* filename) {
                 sscanf(trimmed + 13, "%d", (int*)&temp_band.label_anchor);
             } else if (strncmp(trimmed, "label_offset:", 13) == 0) {
                 sscanf(trimmed + 13, "%f %f", &temp_band.label_offset.x, &temp_band.label_offset.y);
+            } else if (strncmp(trimmed, "label_fixed:", 14) == 0) {
+                char bool_str[16];
+                sscanf(trimmed + 14, "%15s", bool_str);
+                temp_band.label_fixed = (strcmp(bool_str, "true") == 0);
             }
         }
     }
@@ -2077,6 +2085,12 @@ Layout render_lens(Atelier* atelier, Layout layout) {
         render_numeric_input_field_full(atelier, &band->label_offset.x, x_input_pos, offset_input_size, false, 0.5f);
         render_numeric_input_field_full(atelier, &band->label_offset.y, y_input_pos, offset_input_size, false, 0.5f);
 
+        V2 toggle_pos = {layout.next.x + 115, layout.next.y + 12};
+        V2 toggle_size = {25, 25};
+        if (render_button(atelier, band->label_fixed ? "O" : "F", toggle_pos, toggle_size, INPUT_NONE)) {
+            band->label_fixed = !band->label_fixed;
+        }
+
         advance_vertical(&layout, 50);
 
         advance_vertical(&layout, 10);  // Space between bands
@@ -2177,11 +2191,13 @@ void render_band_geometry(Atelier* atelier, Band* band, Interval transformed, in
       world_pos = v2_add(world_pos, band->label_offset);
       V2 label_pos = world_to_screen(world_pos, &atelier->camera);
 
+      LabelAnchor text_anchor = band->label_fixed ? LABEL_TOP_LEFT : rotate_anchor_for_corner(anchor, CORNER_TL);
+
       LabelDraw label = {
           band->label,
           label_pos,
           make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue),
-          rotate_anchor_for_corner(anchor, CORNER_TL)
+          text_anchor
       };
       atelier->render_ctx.labels.ptr[atelier->render_ctx.labels.length++] = label;
     }
