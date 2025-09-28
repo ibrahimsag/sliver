@@ -2170,6 +2170,48 @@ int calculate_edge_flags(Corner selected_corner, float start, float end) {
     return edge_flags;
 }
 
+V2 anchor_to_position(LabelAnchor anchor, Interval transformed, Diagonal diagonal) {
+    // Clamp to visible range [0, 1]
+    transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
+    transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
+
+    // Get the two diagonal endpoints
+    V2 p1 = v2_lerp(diagonal.start, diagonal.end, transformed.start);
+    V2 p2 = v2_lerp(diagonal.start, diagonal.end, transformed.end);
+
+    // Calculate bounding box
+    float min_x = fminf(p1.x, p2.x);
+    float max_x = fmaxf(p1.x, p2.x);
+    float min_y = fminf(p1.y, p2.y);
+    float max_y = fmaxf(p1.y, p2.y);
+
+    float center_x = (min_x + max_x) / 2.0f;
+    float center_y = (min_y + max_y) / 2.0f;
+    float padding = 3.0f;
+
+    switch (anchor) {
+        case LABEL_TOP_LEFT:
+            return (V2){min_x - padding, min_y - padding};
+        case LABEL_TOP_CENTER:
+            return (V2){center_x, min_y - padding};
+        case LABEL_TOP_RIGHT:
+            return (V2){max_x + padding, min_y - padding};
+        case LABEL_MIDDLE_LEFT:
+            return (V2){min_x - padding, center_y};
+        case LABEL_CENTER:
+            return (V2){center_x, center_y};
+        case LABEL_MIDDLE_RIGHT:
+            return (V2){max_x + padding, center_y};
+        case LABEL_BOTTOM_LEFT:
+            return (V2){min_x - padding, max_y + padding};
+        case LABEL_BOTTOM_CENTER:
+            return (V2){center_x, max_y + padding};
+        case LABEL_BOTTOM_RIGHT:
+        default:
+            return (V2){max_x + padding, max_y + padding};
+    }
+}
+
 void draw_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Diagonal diagonal, Camera* camera, int edge_flags) {
     // Clamp to visible range [0, 1]
     transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
@@ -2323,58 +2365,8 @@ void render(AppState* state) {
             continue;
         }
 
-        // Clamp to visible range
-        float t_start = fmaxf(0.0f, fminf(1.0f, transformed.start));
-        float t_end = fmaxf(0.0f, fminf(1.0f, transformed.end));
-
-        // Calculate band corners on diagonal
-        V2 p1 = v2_lerp(state->diagonal.start, state->diagonal.end, t_start);
-        V2 p2 = v2_lerp(state->diagonal.start, state->diagonal.end, t_end);
-
-        // Get bounding box
-        float min_x = fminf(p1.x, p2.x);
-        float min_y = fminf(p1.y, p2.y);
-        float max_x = fmaxf(p1.x, p2.x);
-        float max_y = fmaxf(p1.y, p2.y);
-
         // Position label based on band's label anchor
-        float padding = 3.0f;
-        float center_x = (min_x + max_x) / 2.0f;
-        float center_y = (min_y + max_y) / 2.0f;
-
-        V2 world_pos;
-        switch (sq->label_anchor) {
-            case LABEL_TOP_LEFT:
-                world_pos = (V2){min_x - padding, min_y - padding};
-                break;
-            case LABEL_TOP_CENTER:
-                world_pos = (V2){center_x, min_y - padding};
-                break;
-            case LABEL_TOP_RIGHT:
-                world_pos = (V2){max_x + padding, min_y - padding};
-                break;
-            case LABEL_MIDDLE_LEFT:
-                world_pos = (V2){min_x - padding, center_y};
-                break;
-            case LABEL_CENTER:
-                world_pos = (V2){center_x, center_y};
-                break;
-            case LABEL_MIDDLE_RIGHT:
-                world_pos = (V2){max_x + padding, center_y};
-                break;
-            case LABEL_BOTTOM_LEFT:
-                world_pos = (V2){min_x - padding, max_y + padding};
-                break;
-            case LABEL_BOTTOM_CENTER:
-                world_pos = (V2){center_x, max_y + padding};
-                break;
-            case LABEL_BOTTOM_RIGHT:
-            default:
-                world_pos = (V2){max_x + padding, max_y + padding};
-                break;
-        }
-
-        // Apply label offset
+        V2 world_pos = anchor_to_position(sq->label_anchor, transformed, state->diagonal);
         world_pos = v2_add(world_pos, sq->label_offset);
         V2 label_pos = world_to_screen(world_pos, &state->camera);
 
