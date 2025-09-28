@@ -12,8 +12,8 @@ WORK SLIVER 0001
   wave_inverted: false
   wave_half_period: false
   follow_previous: false
-  label_anchor: 8
-  label_offset: 0.000000 0.000000
+  label_anchor: 0
+  label_offset: -68.500000 -15.500000
 }
 {
   type: band
@@ -28,8 +28,8 @@ WORK SLIVER 0001
   wave_inverted: false
   wave_half_period: false
   follow_previous: false
-  label_anchor: 8
-  label_offset: 0.000000 0.000000
+  label_anchor: 0
+  label_offset: -90.500000 -17.000000
 }
 {
   type: band
@@ -44,8 +44,8 @@ WORK SLIVER 0001
   wave_inverted: true
   wave_half_period: false
   follow_previous: false
-  label_anchor: 8
-  label_offset: 0.000000 0.000000
+  label_anchor: 0
+  label_offset: -73.500000 -15.500000
 }
 {
   type: band
@@ -60,6 +60,6 @@ WORK SLIVER 0001
   wave_inverted: false
   wave_half_period: false
   follow_previous: false
-  label_anchor: 8
-  label_offset: 0.000000 0.000000
+  label_anchor: 0
+  label_offset: -81.500000 -14.500000
 }

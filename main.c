@@ -258,6 +258,7 @@ typedef struct {
     LabelAnchor label_anchor;  // Default anchor for band labels
     int band_offset;  // Offset for band iteration in UI
     UIState ui_state;  // Current UI mode (LENS or SHELF)
+    bool one_side;  // Draw only on one side of diagonal
     bool running;
 } Atelier;
 
@@ -342,28 +343,32 @@ void calculate_diagonal(Atelier* atelier) {
     }
 }
 
-int calculate_edge_flags(Corner selected_corner, float start, float end) {
+int calculate_edge_flags(Atelier* atelier, float start, float end) {
     int edge_flags = EDGE_TOP | EDGE_RIGHT | EDGE_BOTTOM | EDGE_LEFT;  // Start with all visible
 
     bool start_in_range = (start >= 0.0f && start <= 1.0f);
     bool end_in_range = (end >= 0.0f && end <= 1.0f);
 
-    switch (selected_corner) {
+    switch (atelier->selected_corner) {
         case CORNER_TL:  // BL→TR diagonal
             if (!start_in_range) edge_flags &= ~(EDGE_LEFT | EDGE_BOTTOM);
             if (!end_in_range) edge_flags &= ~(EDGE_TOP | EDGE_RIGHT);
+            if (atelier->one_side) edge_flags &= ~(EDGE_TOP | EDGE_LEFT);
             break;
         case CORNER_TR:  // TL→BR diagonal
             if (!start_in_range) edge_flags &= ~(EDGE_TOP | EDGE_LEFT);
             if (!end_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_RIGHT);
+            if (atelier->one_side) edge_flags &= ~(EDGE_TOP | EDGE_RIGHT);
             break;
         case CORNER_BR:  // TR→BL diagonal
             if (!start_in_range) edge_flags &= ~(EDGE_TOP | EDGE_RIGHT);
             if (!end_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_LEFT);
+            if (atelier->one_side) edge_flags &= ~(EDGE_BOTTOM | EDGE_RIGHT);
             break;
         case CORNER_BL:  // BR→TL diagonal
             if (!start_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_RIGHT);
             if (!end_in_range) edge_flags &= ~(EDGE_TOP | EDGE_LEFT);
+            if (atelier->one_side) edge_flags &= ~(EDGE_BOTTOM | EDGE_LEFT);
             break;
         default:
             break;
@@ -1201,8 +1206,39 @@ void label_copy(char dest[32], const char* src) {
     dest[31] = '\0';
 }
 
-void collect_label(Atelier* atelier, Band* band, Interval transformed) {
+void collect_label(Atelier* atelier, Band* band, Interval transformed, int edge_flags) {
     if (band->label[0] == '\0') return;
+
+    LabelAnchor anchor = band->label_anchor;
+
+    switch (anchor) {
+        case LABEL_TOP_LEFT:
+            if (!(edge_flags & EDGE_TOP) && !(edge_flags & EDGE_LEFT)) return;
+            break;
+        case LABEL_TOP_RIGHT:
+            if (!(edge_flags & EDGE_TOP) && !(edge_flags & EDGE_RIGHT)) return;
+            break;
+        case LABEL_BOTTOM_LEFT:
+            if (!(edge_flags & EDGE_BOTTOM) && !(edge_flags & EDGE_LEFT)) return;
+            break;
+        case LABEL_BOTTOM_RIGHT:
+            if (!(edge_flags & EDGE_BOTTOM) && !(edge_flags & EDGE_RIGHT)) return;
+            break;
+        case LABEL_TOP_CENTER:
+            if (!(edge_flags & EDGE_TOP)) return;
+            break;
+        case LABEL_BOTTOM_CENTER:
+            if (!(edge_flags & EDGE_BOTTOM)) return;
+            break;
+        case LABEL_MIDDLE_LEFT:
+            if (!(edge_flags & EDGE_LEFT)) return;
+            break;
+        case LABEL_MIDDLE_RIGHT:
+            if (!(edge_flags & EDGE_RIGHT)) return;
+            break;
+        case LABEL_CENTER:
+            break;
+    }
 
     V2 world_pos = anchor_to_position(band->label_anchor, transformed, atelier->diagonal, atelier->selected_corner);
     world_pos = v2_add(world_pos, band->label_offset);
@@ -1833,6 +1869,11 @@ Layout render_lens(Atelier* atelier, Layout layout) {
             atelier->band_offset++;
         }
     }
+    advance_horizontal(&layout, nav_button_size.x + 5);
+
+    if (render_button(atelier, atelier->one_side ? "1" : "2", layout.next, nav_button_size, INPUT_NONE)) {
+        atelier->one_side = !atelier->one_side;
+    }
     advance_vertical(&layout, 25);
 
     // Render each band
@@ -2131,18 +2172,18 @@ void render_work(Atelier* atelier) {
             Interval transformed = sliver_transform_interval(band->interval, &atelier->sliver_camera);
             {
                 Interval extended = {-2.0f, transformed.end};
-                int edge_flags = calculate_edge_flags(atelier->selected_corner, extended.start, extended.end);
+                int edge_flags = calculate_edge_flags(atelier, extended.start, extended.end);
                 if (edge_flags != 0) {
                     render_band_geometry(&atelier->render_ctx.geometry, band, extended, atelier->diagonal, &atelier->camera, edge_flags);
-                    collect_label(atelier, band, extended);
+                    collect_label(atelier, band, extended, edge_flags);
                 }
             }
             {
                 Interval extended = {transformed.start, 2.0f};
-                int edge_flags = calculate_edge_flags(atelier->selected_corner, extended.start, extended.end);
+                int edge_flags = calculate_edge_flags(atelier, extended.start, extended.end);
                 if (edge_flags != 0) {
                     render_band_geometry(&atelier->render_ctx.geometry, band, extended, atelier->diagonal, &atelier->camera, edge_flags);
-                    collect_label(atelier, band, extended);
+                    collect_label(atelier, band, extended, edge_flags);
                 }
             }
         } else {
@@ -2158,14 +2199,14 @@ void render_work(Atelier* atelier) {
                 Interval transformed = sliver_transform_interval(interval, &atelier->sliver_camera);
 
                 // Calculate edge visibility flags and skip if no edges visible
-                int edge_flags = calculate_edge_flags(atelier->selected_corner, transformed.start, transformed.end);
+                int edge_flags = calculate_edge_flags(atelier, transformed.start, transformed.end);
                 if (edge_flags == 0) {
                     continue;
                 }
 
                 // Draw band geometry
                 render_band_geometry(&atelier->render_ctx.geometry, band, transformed, atelier->diagonal, &atelier->camera, edge_flags);
-                collect_label(atelier, band, transformed);
+                collect_label(atelier, band, transformed, edge_flags);
             }
         }
     }
@@ -2307,6 +2348,7 @@ int main(int argc, char* argv[]) {
     atelier.selected_corner = CORNER_BR;  // Start with bottom-right selected
     atelier.label_anchor = LABEL_BOTTOM_RIGHT;  // Start with bottom-right labels
     atelier.band_offset = 0;  // Start at beginning of band list
+    atelier.one_side = false;  // Draw on both sides of diagonal
     atelier.bounding_center = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center in viewport
     atelier.bounding_half = (BOUNDING_SIZE - BOUNDING_PADDING) / 2;
 
