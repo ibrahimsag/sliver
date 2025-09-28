@@ -2128,23 +2128,21 @@ void render_work(AppState* state) {
         Band* band = &state->work->bands.ptr[i];
 
         if (band->kind == BAND_OPEN) {
-            // For open bands, draw two intervals: (-inf, end] and [start, +inf)
+            Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
             {
-                Interval interval = {-1000.0f, band->interval.end};
-                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
-                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+                Interval extended = {-2.0f, transformed.end};
+                int edge_flags = calculate_edge_flags(state->selected_corner, extended.start, extended.end);
                 if (edge_flags != 0) {
-                    render_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
-                    collect_label(state, band, transformed);
+                    render_band_geometry(&state->render_ctx.geometry, band, extended, state->diagonal, &state->camera, edge_flags);
+                    collect_label(state, band, extended);
                 }
             }
             {
-                Interval interval = {band->interval.start, 1000.0f};
-                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
-                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+                Interval extended = {transformed.start, 2.0f};
+                int edge_flags = calculate_edge_flags(state->selected_corner, extended.start, extended.end);
                 if (edge_flags != 0) {
-                    render_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
-                    collect_label(state, band, transformed);
+                    render_band_geometry(&state->render_ctx.geometry, band, extended, state->diagonal, &state->camera, edge_flags);
+                    collect_label(state, band, extended);
                 }
             }
         } else {
