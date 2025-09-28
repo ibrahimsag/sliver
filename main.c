@@ -2636,8 +2636,12 @@ int main(int argc, char* argv[]) {
                                 break;
 
                             case SDLK_BACKSPACE:
-                                // Delete character before cursor
-                                if (atelier.cursor_pos > 0) {
+                                // Delete character before cursor (or clear field with Ctrl/Cmd)
+                                if (event.key.keysym.mod & (KMOD_CTRL | KMOD_GUI)) {
+                                    // Clear entire input field
+                                    atelier.input_buffer[0] = '\0';
+                                    atelier.cursor_pos = 0;
+                                } else if (atelier.cursor_pos > 0) {
                                     memmove(&atelier.input_buffer[atelier.cursor_pos - 1],
                                            &atelier.input_buffer[atelier.cursor_pos],
                                            strlen(&atelier.input_buffer[atelier.cursor_pos]) + 1);
