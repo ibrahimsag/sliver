@@ -189,8 +189,21 @@ typedef struct {
 } GeometryBuffer;
 
 typedef struct {
+    const char* label;
+    V2 position;  // Screen position
+    SDL_Color color;
+} LabelDraw;
+
+typedef struct {
+    LabelDraw* ptr;
+    size_t length;
+    size_t capacity;
+} LabelDrawArray;
+
+typedef struct {
     GeometryBuffer geometry;
     SDL_Texture* white_texture;  // 1x1 white texture for solid colors
+    LabelDrawArray labels;  // Labels to draw
 } RenderContext;
 
 typedef struct {
@@ -505,6 +518,11 @@ void render_context_init(RenderContext* ctx, SDL_Renderer* renderer) {
                                            SDL_TEXTUREACCESS_STATIC, 1, 1);
     Uint32 white_pixel = 0xFFFFFFFF;
     SDL_UpdateTexture(ctx->white_texture, NULL, &white_pixel, 4);
+
+    // Initialize label array
+    ctx->labels.capacity = 256;
+    ctx->labels.length = 0;
+    ctx->labels.ptr = malloc(ctx->labels.capacity * sizeof(LabelDraw));
 }
 
 void render_context_free(RenderContext* ctx) {
@@ -513,6 +531,7 @@ void render_context_free(RenderContext* ctx) {
         SDL_DestroyTexture(ctx->white_texture);
         ctx->white_texture = NULL;
     }
+    free(ctx->labels.ptr);
 }
 
 void render_text(AppState* state, const char* text, V2 position, SDL_Color color) {
@@ -2084,7 +2103,25 @@ void draw_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Di
     }
 }
 
+void collect_label(AppState* state, Band* band, Interval transformed) {
+    if (!band->label || band->label[0] == '\0') return;
+
+    V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
+    world_pos = v2_add(world_pos, band->label_offset);
+    V2 label_pos = world_to_screen(world_pos, &state->camera);
+
+    LabelDraw label = {
+        band->label,
+        label_pos,
+        make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue)
+    };
+    state->render_ctx.labels.ptr[state->render_ctx.labels.length++] = label;
+}
+
 void render_work(AppState* state) {
+    // Clear label array
+    state->render_ctx.labels.length = 0;
+
     // Draw bands along diagonal
     for (size_t i = 0; i < state->work->bands.length; i++) {
         Band* band = &state->work->bands.ptr[i];
@@ -2097,6 +2134,7 @@ void render_work(AppState* state) {
                 int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
                 if (edge_flags != 0) {
                     draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
+                    collect_label(state, band, transformed);
                 }
             }
             {
@@ -2105,6 +2143,7 @@ void render_work(AppState* state) {
                 int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
                 if (edge_flags != 0) {
                     draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
+                    collect_label(state, band, transformed);
                 }
             }
         } else {
@@ -2127,74 +2166,10 @@ void render_work(AppState* state) {
 
                 // Draw band geometry
                 draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
+                collect_label(state, band, transformed);
             }
         }
     }
-}
-
-void render_labels(AppState* state) {
-    // Draw labels for bands (after geometry, still within clipping rect)
-    for (size_t i = 0; i < state->work->bands.length; i++) {
-        Band* band = &state->work->bands.ptr[i];
-
-        // Skip if no label
-        if (!band->label || band->label[0] == '\0') continue;
-
-        if (band->kind == BAND_OPEN) {
-            // For open bands, draw label twice (once for each interval)
-            {
-                Interval interval = {-1000.0f, band->interval.end};
-                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
-                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
-                if (edge_flags != 0) {
-                    V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
-                    world_pos = v2_add(world_pos, band->label_offset);
-                    V2 label_pos = world_to_screen(world_pos, &state->camera);
-
-                    SDL_Color label_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
-                    render_text(state, band->label, label_pos, label_color);
-                }
-            }
-            {
-                Interval interval = {band->interval.start, 1000.0f};
-                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
-                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
-                if (edge_flags != 0) {
-                    V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
-                    world_pos = v2_add(world_pos, band->label_offset);
-                    V2 label_pos = world_to_screen(world_pos, &state->camera);
-
-                    SDL_Color label_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
-                    render_text(state, band->label, label_pos, label_color);
-                }
-            }
-        } else {
-            // Normal closed band behavior with repeat support
-            int count = band->repeat + 1;  // repeat=0 means 1 interval
-            float size = band->interval.end - band->interval.start;
-
-            for (int j = 0; j < count; j++) {
-                Interval interval = {
-                    band->interval.start + j * band->stride,
-                    band->interval.start + j * band->stride + size
-                };
-                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
-
-                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
-                if (edge_flags == 0) {
-                    continue;
-                }
-
-                V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
-                world_pos = v2_add(world_pos, band->label_offset);
-                V2 label_pos = world_to_screen(world_pos, &state->camera);
-
-                SDL_Color label_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
-                render_text(state, band->label, label_pos, label_color);
-            }
-        }
-    }
-
 }
 
 void render_viewport(AppState* state) {
@@ -2263,7 +2238,11 @@ void render_viewport(AppState* state) {
                           state->render_ctx.geometry.indices, state->render_ctx.geometry.index_count);
     }
 
-    render_labels(state);
+    // Draw collected labels
+    for (size_t i = 0; i < state->render_ctx.labels.length; i++) {
+        LabelDraw* label = &state->render_ctx.labels.ptr[i];
+        render_text(state, label->label, label->position, label->color);
+    }
 
     // Clear clipping rect to draw UI
     SDL_RenderSetClipRect(state->renderer, NULL);
