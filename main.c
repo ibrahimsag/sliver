@@ -256,7 +256,6 @@ typedef struct {
     void* dragging_input_field;  // Pointer to the float being dragged
     float drag_start_value;      // Value when drag started
     float drag_start_mouse_x;    // Mouse X position when drag started
-    LabelAnchor label_anchor;  // Default anchor for band labels
     int band_offset;  // Offset for band iteration in UI
     UIState ui_state;  // Current UI mode (LENS or SHELF)
     bool one_side;  // Draw only on one side of diagonal
@@ -1392,7 +1391,7 @@ void add_random_band(Atelier* atelier) {
         .label = {0},  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
-        .label_anchor = LABEL_BOTTOM_RIGHT,  // Default label anchor
+        .label_anchor = LABEL_TOP_LEFT,  // Default label anchor
         .label_offset = {0, 0},  // No offset
         .wave_half_period = false,
         .follow_previous = false
@@ -1423,7 +1422,7 @@ void add_open_band(Atelier* atelier) {
         .wave_inverted = false,
         .wave_half_period = false,
         .follow_previous = false,
-        .label_anchor = LABEL_BOTTOM_RIGHT,  // Default label anchor
+        .label_anchor = LABEL_TOP_LEFT,  // Default label anchor
         .label_offset = {0, 0}  // No offset
     };
     snprintf(new_band.label, 32, "%c", 'A' + (char)(atelier->work->bands.length % 26));
@@ -2371,7 +2370,6 @@ int main(int argc, char* argv[]) {
     atelier.ui_state.shelf_mode_save = false;
     atelier.ui_state.suggested_filename[0] = '\0';
     atelier.selected_corner = CORNER_BR;  // Start with bottom-right selected
-    atelier.label_anchor = LABEL_BOTTOM_RIGHT;  // Start with bottom-right labels
     atelier.band_offset = 0;  // Start at beginning of band list
     atelier.one_side = false;  // Draw on both sides of diagonal
     atelier.bounding_center = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center in viewport
