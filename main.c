@@ -2130,14 +2130,54 @@ void draw_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Di
     }
 }
 
-void render(AppState* state) {
-    // Regenerate squares from bands every frame (immediate mode)
-    flatten_bands(&state->work->bands, &state->flattened);
+void render_work(AppState* state) {
+    // Draw flattened bands along diagonal
+    for (size_t i = 0; i < state->flattened.length; i++) {
+        Band* band = &state->flattened.ptr[i];
 
-    // Clear screen
-    SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
-    SDL_RenderClear(state->renderer);
+        // Apply sliver transform to the square's interval (from 0-10 space to viewport space)
+        Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
 
+        // Calculate edge visibility flags and skip if no edges visible
+        int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+        if (edge_flags == 0) {
+            continue;
+        }
+
+        // Draw band geometry
+        draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
+    }
+}
+
+void render_labels(AppState* state) {
+    // Draw labels for flattened bands (after geometry, still within clipping rect)
+    for (size_t i = 0; i < state->flattened.length; i++) {
+        Band* band = &state->flattened.ptr[i];
+
+        // Skip if no label
+        if (!band->label || band->label[0] == '\0') continue;
+
+        // Apply sliver transform to the band's interval
+        Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
+
+        // Skip if no edges visible
+        int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+        if (edge_flags == 0) {
+            continue;
+        }
+
+        // Position label based on band's label anchor
+        V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
+        world_pos = v2_add(world_pos, band->label_offset);
+        V2 label_pos = world_to_screen(world_pos, &state->camera);
+
+        SDL_Color label_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
+        render_text(state, band->label, label_pos, label_color);
+    }
+
+}
+
+void render_viewport(AppState* state) {
     // Clear geometry buffer for new frame
     geometry_buffer_clear(&state->render_ctx.geometry);
 
@@ -2186,22 +2226,7 @@ void render(AppState* state) {
         V2 diag_end_s = world_to_screen(state->diagonal.end, &state->camera);
         geometry_buffer_add_line(&state->render_ctx.geometry, diag_start_s, diag_end_s, 2.0f, diagonal_color);
 
-        // Draw flattened bands along diagonal
-        for (size_t i = 0; i < state->flattened.length; i++) {
-            Band* band = &state->flattened.ptr[i];
-
-            // Apply sliver transform to the square's interval (from 0-10 space to viewport space)
-            Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
-
-            // Calculate edge visibility flags and skip if no edges visible
-            int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
-            if (edge_flags == 0) {
-                continue;
-            }
-
-            // Draw band geometry
-            draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
-        }
+        render_work(state);
 
         // Draw orientation edge from selected corner using geometry buffer
         V2 selected = get_corner_position(state, state->selected_corner);
@@ -2218,33 +2243,21 @@ void render(AppState* state) {
                           state->render_ctx.geometry.indices, state->render_ctx.geometry.index_count);
     }
 
-    // Draw labels for flattened bands (after geometry, still within clipping rect)
-    for (size_t i = 0; i < state->flattened.length; i++) {
-        Band* band = &state->flattened.ptr[i];
-
-        // Skip if no label
-        if (!band->label || band->label[0] == '\0') continue;
-
-        // Apply sliver transform to the band's interval
-        Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
-
-        // Skip if no edges visible
-        int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
-        if (edge_flags == 0) {
-            continue;
-        }
-
-        // Position label based on band's label anchor
-        V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
-        world_pos = v2_add(world_pos, band->label_offset);
-        V2 label_pos = world_to_screen(world_pos, &state->camera);
-
-        SDL_Color label_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
-        render_text(state, band->label, label_pos, label_color);
-    }
+    render_labels(state);
 
     // Clear clipping rect to draw UI
     SDL_RenderSetClipRect(state->renderer, NULL);
+}
+
+void render(AppState* state) {
+    // Regenerate squares from bands every frame (immediate mode)
+    flatten_bands(&state->work->bands, &state->flattened);
+
+    // Clear screen
+    SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
+    SDL_RenderClear(state->renderer);
+
+    render_viewport(state);
 
     // Render UI panel on the right
     render_ui_panel(state);
