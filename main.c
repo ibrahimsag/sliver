@@ -516,137 +516,6 @@ void render_context_free(RenderContext* ctx) {
     }
 }
 
-void draw_line(SDL_Renderer* renderer, V2 p1, V2 p2) {
-    SDL_RenderDrawLine(renderer, p1.x, p1.y, p2.x, p2.y);
-}
-
-// Camera-aware drawing functions that read camera from state
-void draw_line_cam(AppState* state, V2 p1, V2 p2) {
-    V2 s1 = world_to_screen(p1, &state->camera);
-    V2 s2 = world_to_screen(p2, &state->camera);
-    draw_line(state->renderer, s1, s2);
-}
-
-void draw_rounded_rect(SDL_Renderer* renderer, float x, float y, float w, float h, float radius) {
-    // Draw rounded rectangle using lines
-    int segments = 32;
-
-    // Draw four corners with correct positioning
-    // Top-left corner (180 to 270 degrees)
-    float cx = x + radius;
-    float cy = y + radius;
-    for (int i = 0; i < segments; i++) {
-        float angle1 = M_PI + (M_PI / 2) * i / segments;
-        float angle2 = M_PI + (M_PI / 2) * (i + 1) / segments;
-        SDL_RenderDrawLine(renderer,
-                          cx + radius * cosf(angle1),
-                          cy + radius * sinf(angle1),
-                          cx + radius * cosf(angle2),
-                          cy + radius * sinf(angle2));
-    }
-
-    // Top-right corner (270 to 360 degrees)
-    cx = x + w - radius;
-    cy = y + radius;
-    for (int i = 0; i < segments; i++) {
-        float angle1 = 3 * M_PI / 2 + (M_PI / 2) * i / segments;
-        float angle2 = 3 * M_PI / 2 + (M_PI / 2) * (i + 1) / segments;
-        SDL_RenderDrawLine(renderer,
-                          cx + radius * cosf(angle1),
-                          cy + radius * sinf(angle1),
-                          cx + radius * cosf(angle2),
-                          cy + radius * sinf(angle2));
-    }
-
-    // Bottom-right corner (0 to 90 degrees)
-    cx = x + w - radius;
-    cy = y + h - radius;
-    for (int i = 0; i < segments; i++) {
-        float angle1 = (M_PI / 2) * i / segments;
-        float angle2 = (M_PI / 2) * (i + 1) / segments;
-        SDL_RenderDrawLine(renderer,
-                          cx + radius * cosf(angle1),
-                          cy + radius * sinf(angle1),
-                          cx + radius * cosf(angle2),
-                          cy + radius * sinf(angle2));
-    }
-
-    // Bottom-left corner (90 to 180 degrees)
-    cx = x + radius;
-    cy = y + h - radius;
-    for (int i = 0; i < segments; i++) {
-        float angle1 = M_PI / 2 + (M_PI / 2) * i / segments;
-        float angle2 = M_PI / 2 + (M_PI / 2) * (i + 1) / segments;
-        SDL_RenderDrawLine(renderer,
-                          cx + radius * cosf(angle1),
-                          cy + radius * sinf(angle1),
-                          cx + radius * cosf(angle2),
-                          cy + radius * sinf(angle2));
-    }
-
-    // Draw straight edges
-    SDL_RenderDrawLine(renderer, x + radius, y, x + w - radius, y);  // Top
-    SDL_RenderDrawLine(renderer, x + radius, y + h, x + w - radius, y + h);  // Bottom
-    SDL_RenderDrawLine(renderer, x, y + radius, x, y + h - radius);  // Left
-    SDL_RenderDrawLine(renderer, x + w, y + radius, x + w, y + h - radius);  // Right
-}
-
-void draw_square_cam(AppState* state, V2 p1, V2 p2, bool rounded, float animated_radius_factor) {
-    V2 s1 = world_to_screen(p1, &state->camera);
-    V2 s2 = world_to_screen(p2, &state->camera);
-
-    float min_x = fminf(s1.x, s2.x);
-    float max_x = fmaxf(s1.x, s2.x);
-    float min_y = fminf(s1.y, s2.y);
-    float max_y = fmaxf(s1.y, s2.y);
-
-    if (rounded) {
-        float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
-        float radius = base_radius * animated_radius_factor;
-        float extend = radius * (1.0f - 1.0f/sqrtf(2));
-        draw_rounded_rect(state->renderer, min_x - extend, min_y - extend,
-                         (max_x - min_x) + 2 * extend, (max_y - min_y) + 2 * extend, radius);
-    } else {
-        SDL_Rect rect = {(int)min_x, (int)min_y, (int)(max_x - min_x), (int)(max_y - min_y)};
-        SDL_RenderDrawRect(state->renderer, &rect);
-    }
-}
-
-void draw_circle_cam(AppState* state, V2 center, float radius) {
-    V2 s_center = world_to_screen(center, &state->camera);
-    float s_radius = radius * state->camera.scale;
-
-    const int segments = 32;
-    for (int i = 0; i < segments; i++) {
-        float angle1 = (2.0f * M_PI * i) / segments;
-        float angle2 = (2.0f * M_PI * (i + 1)) / segments;
-        draw_line(state->renderer,
-                 (V2){s_center.x + s_radius * cosf(angle1), s_center.y + s_radius * sinf(angle1)},
-                 (V2){s_center.x + s_radius * cosf(angle2), s_center.y + s_radius * sinf(angle2)});
-    }
-}
-
-void draw_square(SDL_Renderer* renderer, V2 p1, V2 p2, bool rounded, float animated_radius_factor) {
-    // Draw axis-aligned square given diagonal endpoints
-    float min_x = fminf(p1.x, p2.x);
-    float max_x = fmaxf(p1.x, p2.x);
-    float min_y = fminf(p1.y, p2.y);
-    float max_y = fmaxf(p1.y, p2.y);
-
-    if (rounded) {
-        float base_radius = fminf(30.0f, fminf(max_x - min_x, max_y - min_y) * 0.5f);
-        float radius = base_radius * animated_radius_factor;
-        // The 45° point on the arc is inset by r*(1-1/√2) from the corner
-        // So we need to extend the rectangle by this amount to make arcs meet at diagonal points
-        float extend = radius * (1.0f - 1.0f/sqrtf(2));
-        draw_rounded_rect(renderer, min_x - extend, min_y - extend,
-                         (max_x - min_x) + 2 * extend, (max_y - min_y) + 2 * extend, radius);
-    } else {
-        SDL_Rect rect = {(int)min_x, (int)min_y, (int)(max_x - min_x), (int)(max_y - min_y)};
-        SDL_RenderDrawRect(renderer, &rect);
-    }
-}
-
 void render_text(AppState* state, const char* text, V2 position, SDL_Color color) {
     if (!state->font || !text) return;
 
@@ -2351,13 +2220,13 @@ void render(AppState* state) {
 
     // Draw labels for flattened bands (after geometry, still within clipping rect)
     for (size_t i = 0; i < state->flattened.length; i++) {
-        Band* sq = &state->flattened.ptr[i];  // Using Band instead of Square
+        Band* band = &state->flattened.ptr[i];
 
         // Skip if no label
-        if (!sq->label || sq->label[0] == '\0') continue;
+        if (!band->label || band->label[0] == '\0') continue;
 
         // Apply sliver transform to the band's interval
-        Interval transformed = sliver_transform_interval(sq->interval, &state->sliver_camera);
+        Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
 
         // Skip if no edges visible
         int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
@@ -2366,12 +2235,12 @@ void render(AppState* state) {
         }
 
         // Position label based on band's label anchor
-        V2 world_pos = anchor_to_position(sq->label_anchor, transformed, state->diagonal);
-        world_pos = v2_add(world_pos, sq->label_offset);
+        V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
+        world_pos = v2_add(world_pos, band->label_offset);
         V2 label_pos = world_to_screen(world_pos, &state->camera);
 
-        SDL_Color label_color = make_color_oklch(sq->color.lightness, sq->color.chroma, sq->color.hue);
-        render_text(state, sq->label, label_pos, label_color);
+        SDL_Color label_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
+        render_text(state, band->label, label_pos, label_color);
     }
 
     // Clear clipping rect to draw UI
