@@ -85,12 +85,6 @@ typedef struct {
     size_t capacity;   // Total capacity in bytes
 } StringBuilder;
 
-typedef struct {
-    float lightness;  // Lightness value in OKLCH (0-1)
-    float chroma;     // Chroma value in OKLCH (0-~0.4)
-    float hue;        // Hue value in OKLCH color space (0-360)
-} LCH;
-
 typedef enum {
     KIND_SHARP = 0,     // Sharp corners
     KIND_ROUNDED = 1,   // Rounded corners
@@ -142,7 +136,7 @@ typedef struct {
     int repeat;    // Number of additional intervals (0 = single interval, n = n+1 total intervals)
     BandKind kind;  // BAND_CLOSED or BAND_OPEN
     LineKind line_kind;  // Drawing style: SHARP, ROUNDED, or DOUBLE
-    LCH color;     // Color in OKLCH color space
+    ColorOKLCH color;     // Color in OKLCH color space
     char label[32];  // Label text for the band
     int wavelength_scale;  // Multiplier for wavelength when line_kind is WAVE
     bool wave_inverted;  // Whether to use π phase offset for waves
@@ -1388,7 +1382,7 @@ void add_random_band(Atelier* atelier) {
         .repeat = 0,
         .kind = BAND_CLOSED,  // Default to closed band
         .line_kind = KIND_WAVE,  // Default to wave
-        .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
+        .color = {.L = lightness, .C = chroma, .h = random_hue},
         .label = {0},  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
@@ -1418,7 +1412,7 @@ void add_open_band(Atelier* atelier) {
         .repeat = 0,
         .kind = BAND_OPEN,  // Will be set automatically when start >= end
         .line_kind = KIND_WAVE,  // Default to wave
-        .color = {.lightness = lightness, .chroma = chroma, .hue = random_hue},
+        .color = {.L = lightness, .C = chroma, .h = random_hue},
         .label = {0},  // Empty label
         .wavelength_scale = 1,
         .wave_inverted = false,
@@ -1564,7 +1558,7 @@ void work_save(Work* work, const char* filename, StringBuilder* sb) {
         string_append(sb, "  repeat: %d\n", band->repeat);
         string_append(sb, "  kind: %s\n", band_kind_to_string(band->kind));
         string_append(sb, "  line_kind: %s\n", line_kind_to_string(band->line_kind));
-        string_append(sb, "  color: %f %f %f\n", band->color.hue, band->color.lightness, band->color.chroma);
+        string_append(sb, "  color: %f %f %f\n", band->color.h, band->color.L, band->color.C);
         string_append(sb, "  label: \"%s\"\n", band->label);
         string_append(sb, "  wavelength_scale: %d\n", band->wavelength_scale);
         string_append(sb, "  wave_inverted: %s\n", band->wave_inverted ? "true" : "false");
@@ -1655,7 +1649,7 @@ bool work_load(Work* work, const char* filename) {
                 sscanf(trimmed + 10, "%31s", line_kind_str);
                 temp_band.line_kind = string_to_line_kind(line_kind_str);
             } else if (strncmp(trimmed, "color:", 6) == 0) {
-                sscanf(trimmed + 6, "%f %f %f", &temp_band.color.hue, &temp_band.color.lightness, &temp_band.color.chroma);
+                sscanf(trimmed + 6, "%f %f %f", &temp_band.color.h, &temp_band.color.L, &temp_band.color.C);
             } else if (strncmp(trimmed, "label:", 6) == 0) {
                 char* label_start = strchr(trimmed + 6, '"');
                 if (label_start) {
@@ -1901,7 +1895,7 @@ Layout render_lens(Atelier* atelier, Layout layout) {
 
         // Band header with band number (show actual index)
         snprintf(buffer, sizeof(buffer), "    %zu:", i + 1);
-        SDL_Color band_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
+        SDL_Color band_color = color_oklch_to_sdl(band->color);
         render_text(atelier, buffer, layout.next, band_color);
 
         // Label input field next to band number
@@ -1969,34 +1963,34 @@ Layout render_lens(Atelier* atelier, Layout layout) {
         input_pos = (V2){layout.next.x + 100, layout.next.y};
 
         // Store old hue to detect changes
-        float old_hue = band->color.hue;
-        render_numeric_input_field_full(atelier, &band->color.hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
+        float old_hue = band->color.h;
+        render_numeric_input_field_full(atelier, &band->color.h, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
 
         // Clamp hue to valid range if it changed
-        if (band->color.hue != old_hue) {
-            while (band->color.hue < 0) band->color.hue += 360.0f;
-            while (band->color.hue >= 360.0f) band->color.hue -= 360.0f;
+        if (band->color.h != old_hue) {
+            while (band->color.h < 0) band->color.h += 360.0f;
+            while (band->color.h >= 360.0f) band->color.h -= 360.0f;
         }
 
         input_pos = (V2){layout.next.x + 100 + input_size.x, layout.next.y};
         // Store old lightness to detect changes
-        float old_lightness = band->color.lightness;
-        render_numeric_input_field_full(atelier, &band->color.lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+        float old_lightness = band->color.L;
+        render_numeric_input_field_full(atelier, &band->color.L, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
 
         // Clamp lightness to valid range if it changed
-        if (band->color.lightness != old_lightness) {
-            while (band->color.lightness < 0) band->color.lightness = 0.0f;
-            while (band->color.lightness > 1.0f) band->color.lightness = 1.0f;
+        if (band->color.L != old_lightness) {
+            while (band->color.L < 0) band->color.L = 0.0f;
+            while (band->color.L > 1.0f) band->color.L = 1.0f;
         }
         input_pos = (V2){layout.next.x + 100 + input_size.x*2, layout.next.y};
         // Store old chroma to detect changes
-        float old_chroma = band->color.chroma;
-        render_numeric_input_field_full(atelier, &band->color.chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+        float old_chroma = band->color.C;
+        render_numeric_input_field_full(atelier, &band->color.C, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
 
         // Clamp chroma to valid range if it changed
-        if (band->color.chroma != old_chroma) {
-            while (band->color.chroma < 0) band->color.chroma = 0.0f;
-            while (band->color.chroma > 1.0f) band->color.chroma = 1.0f;
+        if (band->color.C != old_chroma) {
+            while (band->color.C < 0) band->color.C = 0.0f;
+            while (band->color.C > 1.0f) band->color.C = 1.0f;
         }
         advance_vertical(&layout, 25);
 
@@ -2151,7 +2145,7 @@ void render_band_geometry(Atelier* atelier, Band* band, Interval transformed, in
     float max_y = fmaxf(p1.y, p2.y);
 
     // Convert LCH to SDL_Color for rendering
-    SDL_Color sdl_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
+    SDL_Color sdl_color = color_oklch_to_sdl(band->color);
 
     switch (band->line_kind) {
         case KIND_ROUNDED: {
@@ -2196,7 +2190,7 @@ void render_band_geometry(Atelier* atelier, Band* band, Interval transformed, in
       LabelDraw label = {
           band->label,
           label_pos,
-          make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue),
+          sdl_color,
           text_anchor
       };
       atelier->render_ctx.labels.ptr[atelier->render_ctx.labels.length++] = label;
