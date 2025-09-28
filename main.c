@@ -259,7 +259,7 @@ typedef struct {
     int band_offset;  // Offset for band iteration in UI
     UIState ui_state;  // Current UI mode (LENS or SHELF)
     bool running;
-} AppState;
+} Atelier;
 
 // Transform world coordinates to screen coordinates using camera (within viewport)
 V2 world_to_screen(V2 world, Camera* camera) {
@@ -296,11 +296,11 @@ Interval sliver_transform_interval(Interval interval, SliverCamera* sliver) {
     };
 }
 
-V2 get_corner_position(AppState* state, Corner corner) {
-    float left = state->bounding_center.x - state->bounding_half;
-    float right = state->bounding_center.x + state->bounding_half;
-    float top = state->bounding_center.y - state->bounding_half;
-    float bottom = state->bounding_center.y + state->bounding_half;
+V2 get_corner_position(Atelier* atelier, Corner corner) {
+    float left = atelier->bounding_center.x - atelier->bounding_half;
+    float right = atelier->bounding_center.x + atelier->bounding_half;
+    float top = atelier->bounding_center.y - atelier->bounding_half;
+    float bottom = atelier->bounding_center.y + atelier->bounding_half;
 
     switch (corner) {
         case CORNER_TL: return (V2){left, top};
@@ -311,31 +311,31 @@ V2 get_corner_position(AppState* state, Corner corner) {
     }
 }
 
-void calculate_diagonal(AppState* state) {
-    if (state->selected_corner == CORNER_NONE) return;
+void calculate_diagonal(Atelier* atelier) {
+    if (atelier->selected_corner == CORNER_NONE) return;
 
-    V2 tl = get_corner_position(state, CORNER_TL);
-    V2 tr = get_corner_position(state, CORNER_TR);
-    V2 br = get_corner_position(state, CORNER_BR);
-    V2 bl = get_corner_position(state, CORNER_BL);
+    V2 tl = get_corner_position(atelier, CORNER_TL);
+    V2 tr = get_corner_position(atelier, CORNER_TR);
+    V2 br = get_corner_position(atelier, CORNER_BR);
+    V2 bl = get_corner_position(atelier, CORNER_BL);
 
     // Based on selected corner, set diagonal endpoints
-    switch (state->selected_corner) {
+    switch (atelier->selected_corner) {
         case CORNER_TL:  // Triangle (BL, TR, TL) -> diagonal BL to TR
-            state->diagonal.start = bl;
-            state->diagonal.end = tr;
+            atelier->diagonal.start = bl;
+            atelier->diagonal.end = tr;
             break;
         case CORNER_TR:  // Triangle (TL, BR, TR) -> diagonal TL to BR
-            state->diagonal.start = tl;
-            state->diagonal.end = br;
+            atelier->diagonal.start = tl;
+            atelier->diagonal.end = br;
             break;
         case CORNER_BR:  // Triangle (TR, BL, BR) -> diagonal TR to BL
-            state->diagonal.start = tr;
-            state->diagonal.end = bl;
+            atelier->diagonal.start = tr;
+            atelier->diagonal.end = bl;
             break;
         case CORNER_BL:  // Triangle (BR, TL, BL) -> diagonal BR to TL
-            state->diagonal.start = br;
-            state->diagonal.end = tl;
+            atelier->diagonal.start = br;
+            atelier->diagonal.end = tl;
             break;
         default:
             break;
@@ -647,14 +647,14 @@ void render_context_free(RenderContext* ctx) {
     free(ctx->labels.ptr);
 }
 
-void render_text(AppState* state, const char* text, V2 position, SDL_Color color) {
-    if (!state->font || !text) return;
+void render_text(Atelier* atelier, const char* text, V2 position, SDL_Color color) {
+    if (!atelier->font || !text) return;
 
     // Render at 2x size for supersampling
-    SDL_Surface* surface = TTF_RenderText_Blended(state->font, text, color);
+    SDL_Surface* surface = TTF_RenderText_Blended(atelier->font, text, color);
     if (!surface) return;
 
-    SDL_Texture* texture = SDL_CreateTextureFromSurface(state->renderer, surface);
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(atelier->renderer, surface);
     if (texture) {
         // Scale down to half size for supersampling effect
         SDL_Rect dest = {
@@ -663,7 +663,7 @@ void render_text(AppState* state, const char* text, V2 position, SDL_Color color
             surface->w / 2,  // Half width for supersampling
             surface->h / 2   // Half height for supersampling
         };
-        SDL_RenderCopy(state->renderer, texture, NULL, &dest);
+        SDL_RenderCopy(atelier->renderer, texture, NULL, &dest);
         SDL_DestroyTexture(texture);
     }
     SDL_FreeSurface(surface);
@@ -689,14 +689,14 @@ LabelAnchor inverse_rotate_anchor_for_corner(LabelAnchor anchor, Corner corner) 
     }
 }
 
-int render_anchor_buttons(AppState* state, V2 position, float size, LabelAnchor current) {
+int render_anchor_buttons(Atelier* atelier, V2 position, float size, LabelAnchor current) {
     float button_size = size / 3.0f;
     int selected = -1;
 
     for (int row = 0; row < 3; row++) {
         for (int col = 0; col < 3; col++) {
             int index = row * 3 + col;
-            LabelAnchor rotated = inverse_rotate_anchor_for_corner(index, state->selected_corner);
+            LabelAnchor rotated = inverse_rotate_anchor_for_corner(index, atelier->selected_corner);
             V2 button_pos = {
                 position.x + col * button_size,
                 position.y + row * button_size
@@ -710,22 +710,22 @@ int render_anchor_buttons(AppState* state, V2 position, float size, LabelAnchor 
             };
 
             // Check hover
-            bool hover = state->mouse_pos.x >= rect.x && state->mouse_pos.x < rect.x + rect.w &&
-                        state->mouse_pos.y >= rect.y && state->mouse_pos.y < rect.y + rect.h;
+            bool hover = atelier->mouse_pos.x >= rect.x && atelier->mouse_pos.x < rect.x + rect.w &&
+                        atelier->mouse_pos.y >= rect.y && atelier->mouse_pos.y < rect.y + rect.h;
 
             // Draw background
             if (rotated == current) {
-                SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
+                SDL_SetRenderDrawColor(atelier->renderer, 100, 150, 200, 255);
             } else if (hover) {
-                SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
+                SDL_SetRenderDrawColor(atelier->renderer, 70, 70, 75, 255);
             } else {
-                SDL_SetRenderDrawColor(state->renderer, 45, 45, 50, 255);
+                SDL_SetRenderDrawColor(atelier->renderer, 45, 45, 50, 255);
             }
-            SDL_RenderFillRect(state->renderer, &rect);
+            SDL_RenderFillRect(atelier->renderer, &rect);
 
             // Draw border
-            SDL_SetRenderDrawColor(state->renderer, 80, 80, 85, 255);
-            SDL_RenderDrawRect(state->renderer, &rect);
+            SDL_SetRenderDrawColor(atelier->renderer, 80, 80, 85, 255);
+            SDL_RenderDrawRect(atelier->renderer, &rect);
 
             // Draw small indicator dot in center
             SDL_Rect dot = {
@@ -733,12 +733,12 @@ int render_anchor_buttons(AppState* state, V2 position, float size, LabelAnchor 
                 (int)(button_pos.y + button_size/2 - 2),
                 4, 4
             };
-            SDL_SetRenderDrawColor(state->renderer, 200, 200, 200, 255);
-            SDL_RenderFillRect(state->renderer, &dot);
+            SDL_SetRenderDrawColor(atelier->renderer, 200, 200, 200, 255);
+            SDL_RenderFillRect(atelier->renderer, &dot);
 
             // Check for click
-            if (hover && state->mouse_pressed && !state->mouse_was_pressed &&
-                state->dragging_input_field == NULL) {
+            if (hover && atelier->mouse_pressed && !atelier->mouse_was_pressed &&
+                atelier->dragging_input_field == NULL) {
                 selected = rotated;
             }
         }
@@ -748,7 +748,7 @@ int render_anchor_buttons(AppState* state, V2 position, float size, LabelAnchor 
 }
 
 // Simple immediate mode button
-bool render_button(AppState* state, const char* text, V2 position, V2 size, InputFlags flags) {
+bool render_button(Atelier* atelier, const char* text, V2 position, V2 size, InputFlags flags) {
     SDL_Rect button_rect = {
         (int)position.x,
         (int)position.y,
@@ -760,27 +760,27 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, Inpu
     bool highlighted = (flags == INPUT_HIGHLIGHTED);
 
     // Check if mouse is over button
-    bool hover = !disabled && state->mouse_pos.x >= button_rect.x && state->mouse_pos.x < button_rect.x + button_rect.w &&
-                 state->mouse_pos.y >= button_rect.y && state->mouse_pos.y < button_rect.y + button_rect.h;
+    bool hover = !disabled && atelier->mouse_pos.x >= button_rect.x && atelier->mouse_pos.x < button_rect.x + button_rect.w &&
+                 atelier->mouse_pos.y >= button_rect.y && atelier->mouse_pos.y < button_rect.y + button_rect.h;
 
     // Draw button background
     if (disabled) {
-        SDL_SetRenderDrawColor(state->renderer, 35, 35, 38, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 35, 35, 38, 255);
     } else if (highlighted) {
-        SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 100, 150, 200, 255);
     } else if (hover) {
-        SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 70, 70, 75, 255);
     } else {
-        SDL_SetRenderDrawColor(state->renderer, 50, 50, 55, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 50, 50, 55, 255);
     }
-    SDL_RenderFillRect(state->renderer, &button_rect);
+    SDL_RenderFillRect(atelier->renderer, &button_rect);
 
     // Draw button border
-    SDL_SetRenderDrawColor(state->renderer, 90, 90, 95, 255);
-    SDL_RenderDrawRect(state->renderer, &button_rect);
+    SDL_SetRenderDrawColor(atelier->renderer, 90, 90, 95, 255);
+    SDL_RenderDrawRect(atelier->renderer, &button_rect);
 
     // Draw button text centered
-    if (state->font) {
+    if (atelier->font) {
         V2 text_pos = {
             position.x + size.x / 2.0f,
             position.y + size.y / 2.0f - 9  // Rough centering
@@ -788,22 +788,22 @@ bool render_button(AppState* state, const char* text, V2 position, V2 size, Inpu
 
         // Measure text to center it properly
         int text_w, text_h;
-        TTF_SizeText(state->font, text, &text_w, &text_h);
+        TTF_SizeText(atelier->font, text, &text_w, &text_h);
         text_pos.x -= (text_w / 2) / 2.0f;  // Adjust for supersampling
 
         SDL_Color text_color = disabled ? (SDL_Color){100, 100, 100, 255} : (SDL_Color){200, 200, 200, 255};
-        render_text(state, text, text_pos, text_color);
+        render_text(atelier, text, text_pos, text_color);
     }
 
     // Return true if button was clicked (mouse was pressed last frame, not pressed this frame, and hovering)
     // But not if we're dragging an input field
-    return !disabled && hover && !state->mouse_pressed && state->mouse_was_pressed && !state->dragging_input_field;
+    return !disabled && hover && !atelier->mouse_pressed && atelier->mouse_was_pressed && !atelier->dragging_input_field;
 }
 
 // Full version of input field with disabled option and custom scale
-void render_numeric_input_field_full(AppState* state, float* value, V2 position, V2 size, bool disabled, float drag_scale) {
-    bool is_active = (state->active_field.ptr == value && state->active_field.is_numeric);
-    bool is_dragging = (state->dragging_input_field == value);
+void render_numeric_input_field_full(Atelier* atelier, float* value, V2 position, V2 size, bool disabled, float drag_scale) {
+    bool is_active = (atelier->active_field.ptr == value && atelier->active_field.is_numeric);
+    bool is_dragging = (atelier->dragging_input_field == value);
 
     SDL_Rect field_rect = {
         (int)position.x,
@@ -813,126 +813,126 @@ void render_numeric_input_field_full(AppState* state, float* value, V2 position,
     };
 
     // Check if mouse is over field
-    bool hover = state->mouse_pos.x >= field_rect.x && state->mouse_pos.x < field_rect.x + field_rect.w &&
-                 state->mouse_pos.y >= field_rect.y && state->mouse_pos.y < field_rect.y + field_rect.h;
+    bool hover = atelier->mouse_pos.x >= field_rect.x && atelier->mouse_pos.x < field_rect.x + field_rect.w &&
+                 atelier->mouse_pos.y >= field_rect.y && atelier->mouse_pos.y < field_rect.y + field_rect.h;
 
     // Handle mouse interactions (only if not disabled)
-    if (hover && state->mouse_pressed && !state->mouse_was_pressed && !disabled) {
+    if (hover && atelier->mouse_pressed && !atelier->mouse_was_pressed && !disabled) {
         // Start dragging immediately on press
-        state->dragging_input_field = value;
-        state->drag_start_value = *value;
-        state->drag_start_mouse_x = state->mouse_pos.x;
-    } else if (!hover && state->mouse_pressed && is_active) {
+        atelier->dragging_input_field = value;
+        atelier->drag_start_value = *value;
+        atelier->drag_start_mouse_x = atelier->mouse_pos.x;
+    } else if (!hover && atelier->mouse_pressed && is_active) {
         // Click outside - deactivate and apply value
-        if (strlen(state->input_buffer) > 0) {
-            float new_value = atof(state->input_buffer);
+        if (strlen(atelier->input_buffer) > 0) {
+            float new_value = atof(atelier->input_buffer);
             *value = new_value;
         }
-        state->active_field.ptr = NULL;
+        atelier->active_field.ptr = NULL;
     }
 
     // Handle dragging
     if (is_dragging) {
-        if (state->mouse_pressed) {
+        if (atelier->mouse_pressed) {
             // Update value based on mouse drag
-            float delta_x = state->mouse_pos.x - state->drag_start_mouse_x;
+            float delta_x = atelier->mouse_pos.x - atelier->drag_start_mouse_x;
             float scale = drag_scale;  // Use provided scale
             if (SDL_GetModState() & KMOD_CTRL) {
                 scale = drag_scale * 0.1f;  // Fine control with Ctrl
             } else if (SDL_GetModState() & KMOD_ALT) {
                 scale = drag_scale * 10.0f;    // Coarse control with Alt
             }
-            *value = state->drag_start_value + delta_x * scale;
+            *value = atelier->drag_start_value + delta_x * scale;
 
 
             // Update display if this field is also active
             if (is_active) {
-                snprintf(state->input_buffer, sizeof(state->input_buffer), "%.2f", *value);
-                state->cursor_pos = strlen(state->input_buffer);
+                snprintf(atelier->input_buffer, sizeof(atelier->input_buffer), "%.2f", *value);
+                atelier->cursor_pos = strlen(atelier->input_buffer);
             }
         } else {
             // Mouse released - check if it was a click (minimal movement)
-            float movement = fabs(state->mouse_pos.x - state->drag_start_mouse_x);
+            float movement = fabs(atelier->mouse_pos.x - atelier->drag_start_mouse_x);
             if (movement < 3.0f && hover && !is_active) {
                 // It was a click, activate text input
-                state->active_field.ptr = value;
-                state->active_field.is_numeric = true;
-                state->input_original_value = *value;
-                snprintf(state->input_buffer, sizeof(state->input_buffer), "%.2f", *value);
-                state->cursor_pos = strlen(state->input_buffer);
+                atelier->active_field.ptr = value;
+                atelier->active_field.is_numeric = true;
+                atelier->input_original_value = *value;
+                snprintf(atelier->input_buffer, sizeof(atelier->input_buffer), "%.2f", *value);
+                atelier->cursor_pos = strlen(atelier->input_buffer);
             }
             // Stop dragging
-            state->dragging_input_field = NULL;
+            atelier->dragging_input_field = NULL;
         }
     }
 
     // Draw field background
     if (disabled) {
-        SDL_SetRenderDrawColor(state->renderer, 25, 25, 30, 255);  // Darker when disabled
+        SDL_SetRenderDrawColor(atelier->renderer, 25, 25, 30, 255);  // Darker when disabled
     } else if (is_dragging) {
-        SDL_SetRenderDrawColor(state->renderer, 70, 55, 70, 255);  // Purple tint when dragging
+        SDL_SetRenderDrawColor(atelier->renderer, 70, 55, 70, 255);  // Purple tint when dragging
     } else if (is_active) {
-        SDL_SetRenderDrawColor(state->renderer, 60, 65, 70, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 60, 65, 70, 255);
     } else if (hover) {
-        SDL_SetRenderDrawColor(state->renderer, 45, 45, 50, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 45, 45, 50, 255);
     } else {
-        SDL_SetRenderDrawColor(state->renderer, 35, 35, 40, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 35, 35, 40, 255);
     }
-    SDL_RenderFillRect(state->renderer, &field_rect);
+    SDL_RenderFillRect(atelier->renderer, &field_rect);
 
     // Draw field border
     if (disabled) {
-        SDL_SetRenderDrawColor(state->renderer, 50, 50, 55, 255);  // Dim border when disabled
+        SDL_SetRenderDrawColor(atelier->renderer, 50, 50, 55, 255);  // Dim border when disabled
     } else if (is_dragging) {
-        SDL_SetRenderDrawColor(state->renderer, 150, 100, 200, 255);  // Purple border when dragging
+        SDL_SetRenderDrawColor(atelier->renderer, 150, 100, 200, 255);  // Purple border when dragging
     } else if (is_active) {
-        SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 100, 150, 200, 255);
     } else {
-        SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 70, 70, 75, 255);
     }
-    SDL_RenderDrawRect(state->renderer, &field_rect);
+    SDL_RenderDrawRect(atelier->renderer, &field_rect);
 
     // Display text
     char display_text[64];
     if (is_active) {
         // Show input buffer with cursor
-        strncpy(display_text, state->input_buffer, sizeof(display_text));
+        strncpy(display_text, atelier->input_buffer, sizeof(display_text));
     } else {
         // Show current value
         snprintf(display_text, sizeof(display_text), "%.2f", *value);
     }
 
     // Render text
-    if (state->font && strlen(display_text) > 0) {
+    if (atelier->font && strlen(display_text) > 0) {
         SDL_Color white = {255, 255, 255, 255};
         V2 text_pos = {position.x + 4, position.y + 2};
-        render_text(state, display_text, text_pos, white);
+        render_text(atelier, display_text, text_pos, white);
 
         // Draw cursor if active
-        if (is_active && state->font) {
+        if (is_active && atelier->font) {
             // Calculate cursor position using actual text width
             char temp[64];
-            strncpy(temp, state->input_buffer, state->cursor_pos);
-            temp[state->cursor_pos] = '\0';
+            strncpy(temp, atelier->input_buffer, atelier->cursor_pos);
+            temp[atelier->cursor_pos] = '\0';
 
             int text_width = 0;
             if (strlen(temp) > 0) {
                 // Measure text width using TTF
-                TTF_SizeText(state->font, temp, &text_width, NULL);
+                TTF_SizeText(atelier->font, temp, &text_width, NULL);
                 // Scale down because we render at 2x and scale down
                 text_width /= 2;
             }
 
             float cursor_x = text_pos.x + text_width;
-            SDL_SetRenderDrawColor(state->renderer, 255, 255, 255, 255);
-            SDL_RenderDrawLine(state->renderer, cursor_x, position.y + 2, cursor_x, position.y + size.y - 2);
+            SDL_SetRenderDrawColor(atelier->renderer, 255, 255, 255, 255);
+            SDL_RenderDrawLine(atelier->renderer, cursor_x, position.y + 2, cursor_x, position.y + size.y - 2);
         }
     }
 }
 
 // Text input field for editing strings
-void render_text_input_field(AppState* state, char* text, size_t max_len, V2 position, V2 size) {
-    bool is_active = (state->active_field.ptr == text && !state->active_field.is_numeric);
+void render_text_input_field(Atelier* atelier, char* text, size_t max_len, V2 position, V2 size) {
+    bool is_active = (atelier->active_field.ptr == text && !atelier->active_field.is_numeric);
 
     SDL_Rect field_rect = {
         (int)position.x,
@@ -942,67 +942,67 @@ void render_text_input_field(AppState* state, char* text, size_t max_len, V2 pos
     };
 
     // Check if mouse is over field
-    bool hover = state->mouse_pos.x >= field_rect.x && state->mouse_pos.x < field_rect.x + field_rect.w &&
-                 state->mouse_pos.y >= field_rect.y && state->mouse_pos.y < field_rect.y + field_rect.h;
+    bool hover = atelier->mouse_pos.x >= field_rect.x && atelier->mouse_pos.x < field_rect.x + field_rect.w &&
+                 atelier->mouse_pos.y >= field_rect.y && atelier->mouse_pos.y < field_rect.y + field_rect.h;
 
     // Handle mouse click to activate
-    if (hover && state->mouse_pressed && !state->mouse_was_pressed && !is_active) {
-        state->active_field.ptr = text;
-        state->active_field.is_numeric = false;
+    if (hover && atelier->mouse_pressed && !atelier->mouse_was_pressed && !is_active) {
+        atelier->active_field.ptr = text;
+        atelier->active_field.is_numeric = false;
         // Copy current text to input buffer
-        strncpy(state->input_buffer, text, sizeof(state->input_buffer) - 1);
-        state->input_buffer[sizeof(state->input_buffer) - 1] = '\0';
-        state->cursor_pos = strlen(state->input_buffer);
+        strncpy(atelier->input_buffer, text, sizeof(atelier->input_buffer) - 1);
+        atelier->input_buffer[sizeof(atelier->input_buffer) - 1] = '\0';
+        atelier->cursor_pos = strlen(atelier->input_buffer);
         SDL_StartTextInput();
-    } else if (!hover && state->mouse_pressed && is_active) {
+    } else if (!hover && atelier->mouse_pressed && is_active) {
         // Click outside - deactivate and save
-        strncpy(text, state->input_buffer, max_len - 1);
+        strncpy(text, atelier->input_buffer, max_len - 1);
         text[max_len - 1] = '\0';
-        state->active_field.ptr = NULL;
+        atelier->active_field.ptr = NULL;
         // Keep text input active
     }
 
     // Draw field background
     if (is_active) {
-        SDL_SetRenderDrawColor(state->renderer, 60, 65, 70, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 60, 65, 70, 255);
     } else if (hover) {
-        SDL_SetRenderDrawColor(state->renderer, 45, 45, 50, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 45, 45, 50, 255);
     } else {
-        SDL_SetRenderDrawColor(state->renderer, 35, 35, 40, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 35, 35, 40, 255);
     }
-    SDL_RenderFillRect(state->renderer, &field_rect);
+    SDL_RenderFillRect(atelier->renderer, &field_rect);
 
     // Draw field border
     if (is_active) {
-        SDL_SetRenderDrawColor(state->renderer, 100, 150, 200, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 100, 150, 200, 255);
     } else {
-        SDL_SetRenderDrawColor(state->renderer, 70, 70, 75, 255);
+        SDL_SetRenderDrawColor(atelier->renderer, 70, 70, 75, 255);
     }
-    SDL_RenderDrawRect(state->renderer, &field_rect);
+    SDL_RenderDrawRect(atelier->renderer, &field_rect);
 
     // Display text
-    const char* display_text = is_active ? state->input_buffer : text;
-    if (state->font && display_text && strlen(display_text) > 0) {
+    const char* display_text = is_active ? atelier->input_buffer : text;
+    if (atelier->font && display_text && strlen(display_text) > 0) {
         SDL_Color white = {255, 255, 255, 255};
         V2 text_pos = {position.x + 4, position.y + 2};
-        render_text(state, display_text, text_pos, white);
+        render_text(atelier, display_text, text_pos, white);
 
         // Draw cursor if active
         if (is_active) {
             // Calculate cursor position
             char temp[256] = {0};
-            strncpy(temp, state->input_buffer, state->cursor_pos);
-            temp[state->cursor_pos] = '\0';
+            strncpy(temp, atelier->input_buffer, atelier->cursor_pos);
+            temp[atelier->cursor_pos] = '\0';
 
             int text_width = 0;
             if (strlen(temp) > 0) {
-                TTF_SizeText(state->font, temp, &text_width, NULL);
+                TTF_SizeText(atelier->font, temp, &text_width, NULL);
                 text_width /= 2;  // Account for supersampling
             }
 
             float cursor_x = text_pos.x + text_width;
-            SDL_SetRenderDrawColor(state->renderer, 255, 255, 255, 255);
-            SDL_RenderDrawLine(state->renderer, cursor_x, position.y + 2, cursor_x, position.y + size.y - 2);
+            SDL_SetRenderDrawColor(atelier->renderer, 255, 255, 255, 255);
+            SDL_RenderDrawLine(atelier->renderer, cursor_x, position.y + 2, cursor_x, position.y + size.y - 2);
         }
     }
 }
@@ -1201,19 +1201,19 @@ void label_copy(char dest[32], const char* src) {
     dest[31] = '\0';
 }
 
-void collect_label(AppState* state, Band* band, Interval transformed) {
+void collect_label(Atelier* atelier, Band* band, Interval transformed) {
     if (band->label[0] == '\0') return;
 
-    V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal, state->selected_corner);
+    V2 world_pos = anchor_to_position(band->label_anchor, transformed, atelier->diagonal, atelier->selected_corner);
     world_pos = v2_add(world_pos, band->label_offset);
-    V2 label_pos = world_to_screen(world_pos, &state->camera);
+    V2 label_pos = world_to_screen(world_pos, &atelier->camera);
 
     LabelDraw label = {
         band->label,
         label_pos,
         make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue)
     };
-    state->render_ctx.labels.ptr[state->render_ctx.labels.length++] = label;
+    atelier->render_ctx.labels.ptr[atelier->render_ctx.labels.length++] = label;
 }
 
 
@@ -1329,7 +1329,7 @@ void apply_band_rules(BandArray* bands) {
 }
 
 // Create a new band with random color
-void add_random_band(AppState* state) {
+void add_random_band(Atelier* atelier) {
     // Random hue for variety, fixed lightness for consistency
     float random_hue = (rand() % 360);
     float lightness = 0.7f;  // 70% lightness
@@ -1350,14 +1350,14 @@ void add_random_band(AppState* state) {
         .wave_half_period = false,
         .follow_previous = false
     };
-    snprintf(new_band.label, 32, "%c", 'A' + (char)(state->work->bands.length % 26));
+    snprintf(new_band.label, 32, "%c", 'A' + (char)(atelier->work->bands.length % 26));
 
-    band_array_add(&state->work->bands, new_band);
+    band_array_add(&atelier->work->bands, new_band);
 }
 
-void add_open_band(AppState* state) {
+void add_open_band(Atelier* atelier) {
     // Calculate center of sliver camera view
-    float center = state->sliver_camera.offset + 0.5f / state->sliver_camera.scale;
+    float center = atelier->sliver_camera.offset + 0.5f / atelier->sliver_camera.scale;
 
     // Random hue for variety, fixed lightness for consistency
     float random_hue = (rand() % 360);
@@ -1379,17 +1379,17 @@ void add_open_band(AppState* state) {
         .label_anchor = LABEL_BOTTOM_RIGHT,  // Default label anchor
         .label_offset = {0, 0}  // No offset
     };
-    snprintf(new_band.label, 32, "%c", 'A' + (char)(state->work->bands.length % 26));
+    snprintf(new_band.label, 32, "%c", 'A' + (char)(atelier->work->bands.length % 26));
 
-    band_array_add(&state->work->bands, new_band);
+    band_array_add(&atelier->work->bands, new_band);
 }
 
-void init_bands_rand(AppState* state) {
+void init_bands_rand(Atelier* atelier) {
     // Clear existing bands
-    band_array_clear(&state->work->bands);
+    band_array_clear(&atelier->work->bands);
 
     // Add a single random band
-    add_random_band(state);
+    add_random_band(atelier);
 }
 
 const char* band_kind_to_string(BandKind kind) {
@@ -1647,75 +1647,75 @@ bool work_load(Work* work, const char* filename) {
 }
 
 // Draw Work UI layer - manages Work objects (load, store, init)
-Layout render_work_ui(AppState* state, Layout layout) {
+Layout render_work_ui(Atelier* atelier, Layout layout) {
     V2 button_size = {80, 25};
 
     // Work navigation and management buttons
     V2 nav_button_size = {30, 25};
-    if (render_button(state, "<", layout.next, nav_button_size, DISABLED(!state->work->prev))) {
-        if (state->work->prev) {
-            state->work = state->work->prev;
+    if (render_button(atelier, "<", layout.next, nav_button_size, DISABLED(!atelier->work->prev))) {
+        if (atelier->work->prev) {
+            atelier->work = atelier->work->prev;
         }
     }
     advance_horizontal(&layout, nav_button_size.x + 5);
 
-    if (render_button(state, ">", layout.next, nav_button_size, DISABLED(!state->work->next))) {
-        if (state->work->next) {
-            state->work = state->work->next;
+    if (render_button(atelier, ">", layout.next, nav_button_size, DISABLED(!atelier->work->next))) {
+        if (atelier->work->next) {
+            atelier->work = atelier->work->next;
         }
     }
     advance_horizontal(&layout, nav_button_size.x + 10);
 
     // Work preset buttons
-    if (render_button(state, "New", layout.next, button_size, INPUT_NONE)) {
+    if (render_button(atelier, "New", layout.next, button_size, INPUT_NONE)) {
         Work* new_work = work_new(128);
-        new_work->prev = state->work;
-        new_work->next = state->work->next;
-        if (state->work->next) state->work->next->prev = new_work;
-        state->work->next = new_work;
-        state->work = new_work;
+        new_work->prev = atelier->work;
+        new_work->next = atelier->work->next;
+        if (atelier->work->next) atelier->work->next->prev = new_work;
+        atelier->work->next = new_work;
+        atelier->work = new_work;
     }
     advance_horizontal(&layout, button_size.x + 10);
 
-    if (render_button(state, "Load", layout.next, button_size, INPUT_NONE)) {
-        state->ui_state.shelf_mode_save = false;
-        state->ui_state.step = UI_SHELF;
+    if (render_button(atelier, "Load", layout.next, button_size, INPUT_NONE)) {
+        atelier->ui_state.shelf_mode_save = false;
+        atelier->ui_state.step = UI_SHELF;
     }
 
     advance_vertical(&layout, 30);
 
-    if (render_button(state, "Store", layout.next, button_size, INPUT_NONE)) {
-        if (state->work->filename[0] != '\0') {
-            strncpy(state->ui_state.suggested_filename, state->work->filename, 255);
-            state->ui_state.suggested_filename[255] = '\0';
+    if (render_button(atelier, "Store", layout.next, button_size, INPUT_NONE)) {
+        if (atelier->work->filename[0] != '\0') {
+            strncpy(atelier->ui_state.suggested_filename, atelier->work->filename, 255);
+            atelier->ui_state.suggested_filename[255] = '\0';
         } else {
             time_t now = time(NULL);
             struct tm *tm_info = localtime(&now);
-            strftime(state->ui_state.suggested_filename, sizeof(state->ui_state.suggested_filename), "work_%Y-%m-%d_%H-%M-%S.wo", tm_info);
+            strftime(atelier->ui_state.suggested_filename, sizeof(atelier->ui_state.suggested_filename), "work_%Y-%m-%d_%H-%M-%S.wo", tm_info);
         }
-        state->ui_state.shelf_mode_save = true;
-        state->ui_state.step = UI_SHELF;
+        atelier->ui_state.shelf_mode_save = true;
+        atelier->ui_state.step = UI_SHELF;
     }
     advance_horizontal(&layout, button_size.x + 10);
 
-    if (render_button(state, "Copy", layout.next, button_size, INPUT_NONE)) {
-        Work* copied = work_copy(state->work);
+    if (render_button(atelier, "Copy", layout.next, button_size, INPUT_NONE)) {
+        Work* copied = work_copy(atelier->work);
         copied->filename[0] = '\0';
-        copied->prev = state->work;
-        copied->next = state->work->next;
-        if (state->work->next) state->work->next->prev = copied;
-        state->work->next = copied;
-        state->work = copied;
+        copied->prev = atelier->work;
+        copied->next = atelier->work->next;
+        if (atelier->work->next) atelier->work->next->prev = copied;
+        atelier->work->next = copied;
+        atelier->work = copied;
     }
     advance_horizontal(&layout, button_size.x + 10);
 
-    if (render_button(state, "Close", layout.next, button_size, INPUT_NONE)) {
-        if (state->work->prev || state->work->next) {
-            Work* to_close = state->work;
-            if (state->work->next) {
-                state->work = state->work->next;
+    if (render_button(atelier, "Close", layout.next, button_size, INPUT_NONE)) {
+        if (atelier->work->prev || atelier->work->next) {
+            Work* to_close = atelier->work;
+            if (atelier->work->next) {
+                atelier->work = atelier->work->next;
             } else {
-                state->work = state->work->prev;
+                atelier->work = atelier->work->prev;
             }
             work_close(to_close);
         }
@@ -1725,13 +1725,13 @@ Layout render_work_ui(AppState* state, Layout layout) {
     // Show modified indicator and filename
     SDL_Color white = {255, 255, 255, 255};
     SDL_Color modified_color = {255, 200, 100, 255};
-    if (work_is_modified(state->work)) {
-        render_text(state, "*", layout.next, modified_color);
+    if (work_is_modified(atelier->work)) {
+        render_text(atelier, "*", layout.next, modified_color);
     }
     advance_horizontal(&layout, 20);
 
-    const char* display_name = state->work->filename[0] != '\0' ? state->work->filename : "(unsaved)";
-    render_text(state, display_name, layout.next, work_is_modified(state->work) ? modified_color : white);
+    const char* display_name = atelier->work->filename[0] != '\0' ? atelier->work->filename : "(unsaved)";
+    render_text(atelier, display_name, layout.next, work_is_modified(atelier->work) ? modified_color : white);
 
     advance_vertical(&layout, 30);
 
@@ -1739,52 +1739,52 @@ Layout render_work_ui(AppState* state, Layout layout) {
 }
 
 // Draw Shelf layer - file browser for load/save
-Layout render_shelf(AppState* state, Layout layout) {
+Layout render_shelf(Atelier* atelier, Layout layout) {
     V2 button_size = {300, 30};
     SDL_Color white = {255, 255, 255, 255};
 
-    if (state->ui_state.shelf_mode_save) {
-        render_text(state, "Save work file:", layout.next, white);
+    if (atelier->ui_state.shelf_mode_save) {
+        render_text(atelier, "Save work file:", layout.next, white);
         advance_vertical(&layout, 35);
 
         V2 input_pos = layout.next;
         V2 input_size = {400, 25};
-        render_text_input_field(state, state->ui_state.suggested_filename, 256, input_pos, input_size);
+        render_text_input_field(atelier, atelier->ui_state.suggested_filename, 256, input_pos, input_size);
         advance_vertical(&layout, 35);
 
         V2 save_button_size = {80, 25};
-        if (render_button(state, "Save", layout.next, save_button_size, INPUT_NONE)) {
-            work_save(state->work, state->ui_state.suggested_filename, &state->string_builder);
-            state->ui_state.step = UI_LENS;
+        if (render_button(atelier, "Save", layout.next, save_button_size, INPUT_NONE)) {
+            work_save(atelier->work, atelier->ui_state.suggested_filename, &atelier->string_builder);
+            atelier->ui_state.step = UI_LENS;
         }
         advance_horizontal(&layout, save_button_size.x + 10);
 
-        if (render_button(state, "Cancel", layout.next, save_button_size, INPUT_NONE)) {
-            state->ui_state.step = UI_LENS;
+        if (render_button(atelier, "Cancel", layout.next, save_button_size, INPUT_NONE)) {
+            atelier->ui_state.step = UI_LENS;
         }
     } else {
-        render_text(state, "Select a work file to load:", layout.next, white);
+        render_text(atelier, "Select a work file to load:", layout.next, white);
         advance_vertical(&layout, 35);
 
         FileList file_list;
         get_wo_files(&file_list);
 
         if (file_list.count == 0) {
-            render_text(state, "No .wo files found", layout.next, white);
+            render_text(atelier, "No .wo files found", layout.next, white);
         } else {
             for (size_t i = 0; i < file_list.count; i++) {
-                if (render_button(state, file_list.files[i], layout.next, button_size, INPUT_NONE)) {
+                if (render_button(atelier, file_list.files[i], layout.next, button_size, INPUT_NONE)) {
                     Work* loaded = work_new(128);
                     if (work_load(loaded, file_list.files[i])) {
-                        loaded->prev = state->work;
-                        loaded->next = state->work->next;
-                        if (state->work->next) state->work->next->prev = loaded;
-                        state->work->next = loaded;
-                        state->work = loaded;
+                        loaded->prev = atelier->work;
+                        loaded->next = atelier->work->next;
+                        if (atelier->work->next) atelier->work->next->prev = loaded;
+                        atelier->work->next = loaded;
+                        atelier->work = loaded;
                     } else {
                         work_close(loaded);
                     }
-                    state->ui_state.step = UI_LENS;
+                    atelier->ui_state.step = UI_LENS;
                     break;
                 }
                 advance_vertical(&layout, button_size.y + 5);
@@ -1794,25 +1794,25 @@ Layout render_shelf(AppState* state, Layout layout) {
         advance_vertical(&layout, 15);
 
         V2 cancel_button_size = {80, 25};
-        if (render_button(state, "Cancel", layout.next, cancel_button_size, INPUT_NONE)) {
-            state->ui_state.step = UI_LENS;
+        if (render_button(atelier, "Cancel", layout.next, cancel_button_size, INPUT_NONE)) {
+            atelier->ui_state.step = UI_LENS;
         }
     }
 
     return layout;
 }
 
-Layout render_lens(AppState* state, Layout layout) {
+Layout render_lens(Atelier* atelier, Layout layout) {
     V2 button_size = {80, 25};
 
     // Add band buttons
-    if (render_button(state, "+ Band", layout.next, button_size, INPUT_NONE)) {
-        add_random_band(state);
+    if (render_button(atelier, "+ Band", layout.next, button_size, INPUT_NONE)) {
+        add_random_band(atelier);
     }
     advance_horizontal(&layout, button_size.x + 10);
 
-    if (render_button(state, "+ Open", layout.next, button_size, INPUT_NONE)) {
-        add_open_band(state);
+    if (render_button(atelier, "+ Open", layout.next, button_size, INPUT_NONE)) {
+        add_open_band(atelier);
     }
 
     // Move to next row
@@ -1821,49 +1821,49 @@ Layout render_lens(AppState* state, Layout layout) {
 
     // Band list navigation buttons
     V2 nav_button_size = {30, 22};
-    if (render_button(state, "Up", layout.next, nav_button_size, INPUT_NONE)) {
-        if (state->band_offset > 0) {
-            state->band_offset--;
+    if (render_button(atelier, "Up", layout.next, nav_button_size, INPUT_NONE)) {
+        if (atelier->band_offset > 0) {
+            atelier->band_offset--;
         }
     }
     advance_horizontal(&layout, nav_button_size.x + 5);
 
-    if (render_button(state, "Dn", layout.next, nav_button_size, INPUT_NONE)) {
-        if (state->band_offset < (int)state->work->bands.length - 1) {
-            state->band_offset++;
+    if (render_button(atelier, "Dn", layout.next, nav_button_size, INPUT_NONE)) {
+        if (atelier->band_offset < (int)atelier->work->bands.length - 1) {
+            atelier->band_offset++;
         }
     }
     advance_vertical(&layout, 25);
 
     // Render each band
     char buffer[256];
-    for (size_t i = state->band_offset; i < state->work->bands.length; i++) {
-        Band* band = &state->work->bands.ptr[i];
+    for (size_t i = atelier->band_offset; i < atelier->work->bands.length; i++) {
+        Band* band = &atelier->work->bands.ptr[i];
 
         // Band header with band number (show actual index)
         snprintf(buffer, sizeof(buffer), "    %zu:", i + 1);
         SDL_Color band_color = make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue);
-        render_text(state, buffer, layout.next, band_color);
+        render_text(atelier, buffer, layout.next, band_color);
 
         // Label input field next to band number
         V2 label_pos = {layout.next.x + 100, layout.next.y};
         V2 label_size = {120, 20};
-        render_text_input_field(state, band->label, 32, label_pos, label_size);
+        render_text_input_field(atelier, band->label, 32, label_pos, label_size);
         advance_vertical(&layout, 25);
 
         // Add split button (S) near the right side
         V2 split_pos = {WINDOW_WIDTH - 50, layout.next.y + 50};
         V2 split_size = {25, 22};
-        if (render_button(state, "S", split_pos, split_size, INPUT_NONE)) {
-            band_array_split(&state->work->bands, i);
+        if (render_button(atelier, "S", split_pos, split_size, INPUT_NONE)) {
+            band_array_split(&atelier->work->bands, i);
             break;  // Exit loop since array has changed
         }
 
         // Add copy button (C) near the right side
         V2 copy_pos = {WINDOW_WIDTH - 50, layout.next.y + 25};
         V2 copy_size = {25, 22};
-        if (render_button(state, "C", copy_pos, copy_size, INPUT_NONE)) {
-            band_array_copy_after(&state->work->bands, i);
+        if (render_button(atelier, "C", copy_pos, copy_size, INPUT_NONE)) {
+            band_array_copy_after(&atelier->work->bands, i);
             break;  // Exit loop since array has changed
         }
 
@@ -1871,13 +1871,13 @@ Layout render_lens(AppState* state, Layout layout) {
         V2 remove_pos = {WINDOW_WIDTH - 50, layout.next.y};
         V2 remove_size = {25, 22};
         SDL_Color red_tint = {200, 100, 100, 255};
-        if (render_button(state, "X", remove_pos, remove_size, INPUT_NONE)) {
-            band_array_remove(&state->work->bands, i);
+        if (render_button(atelier, "X", remove_pos, remove_size, INPUT_NONE)) {
+            band_array_remove(&atelier->work->bands, i);
             break;  // Exit loop since array has changed
         }
 
         // Band details
-        render_text(state, "Start:", layout.next, band_color);
+        render_text(atelier, "Start:", layout.next, band_color);
         V2 input_pos = {layout.next.x + 100, layout.next.y};
         V2 input_size = {80, 20};
 
@@ -1885,33 +1885,33 @@ Layout render_lens(AppState* state, Layout layout) {
         V2 follow_button_pos = {input_pos.x + input_size.x + 5, input_pos.y};
         V2 follow_button_size = {25, 20};
         const char* follow_text = band->follow_previous ? "^" : " ";
-        if (render_button(state, follow_text, follow_button_pos, follow_button_size, HIGHLIGHTED(band->follow_previous))) {
+        if (render_button(atelier, follow_text, follow_button_pos, follow_button_size, HIGHLIGHTED(band->follow_previous))) {
             band->follow_previous = !band->follow_previous;
         }
 
         // Render start field (disabled if follow_previous is true)
         // Scale drag sensitivity based on sliver camera zoom - more zoom means finer control
-        float drag_scale = 0.005f / state->sliver_camera.scale;  // Inversely proportional to zoom
+        float drag_scale = 0.005f / atelier->sliver_camera.scale;  // Inversely proportional to zoom
         float old_start = band->interval.start;
-        render_numeric_input_field_full(state, &band->interval.start, input_pos, input_size, band->follow_previous, drag_scale);
+        render_numeric_input_field_full(atelier, &band->interval.start, input_pos, input_size, band->follow_previous, drag_scale);
         // By default, move end to keep size fixed (unless Cmd is held for independent movement)
         if (!(SDL_GetModState() & KMOD_GUI) && band->interval.start != old_start) {
             band->interval.end += (band->interval.start - old_start);
         }
         advance_vertical(&layout, 20);
 
-        render_text(state, "  End:", layout.next, band_color);
+        render_text(atelier, "  End:", layout.next, band_color);
         input_pos = (V2){layout.next.x + 100, layout.next.y};
-        render_numeric_input_field_full(state, &band->interval.end, input_pos, input_size, false, drag_scale);
+        render_numeric_input_field_full(atelier, &band->interval.end, input_pos, input_size, false, drag_scale);
         advance_vertical(&layout, 20);
 
         // Hue input field
-        render_text(state, "Color:", layout.next, band_color);
+        render_text(atelier, "Color:", layout.next, band_color);
         input_pos = (V2){layout.next.x + 100, layout.next.y};
 
         // Store old hue to detect changes
         float old_hue = band->color.hue;
-        render_numeric_input_field_full(state, &band->color.hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
+        render_numeric_input_field_full(atelier, &band->color.hue, input_pos, input_size, false, 1.0f);  // Scale of 1.0 for 0-360 range
 
         // Clamp hue to valid range if it changed
         if (band->color.hue != old_hue) {
@@ -1922,7 +1922,7 @@ Layout render_lens(AppState* state, Layout layout) {
         input_pos = (V2){layout.next.x + 100 + input_size.x, layout.next.y};
         // Store old lightness to detect changes
         float old_lightness = band->color.lightness;
-        render_numeric_input_field_full(state, &band->color.lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+        render_numeric_input_field_full(atelier, &band->color.lightness, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
 
         // Clamp lightness to valid range if it changed
         if (band->color.lightness != old_lightness) {
@@ -1932,7 +1932,7 @@ Layout render_lens(AppState* state, Layout layout) {
         input_pos = (V2){layout.next.x + 100 + input_size.x*2, layout.next.y};
         // Store old chroma to detect changes
         float old_chroma = band->color.chroma;
-        render_numeric_input_field_full(state, &band->color.chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
+        render_numeric_input_field_full(atelier, &band->color.chroma, input_pos, input_size, false, 0.003f);  // Scale of 1.0 for 0-360 range
 
         // Clamp chroma to valid range if it changed
         if (band->color.chroma != old_chroma) {
@@ -1945,7 +1945,7 @@ Layout render_lens(AppState* state, Layout layout) {
         const char* band_kind_name = (band->kind == BAND_OPEN) ? "><" : "<>";
         V2 band_kind_pos = {layout.next.x, layout.next.y};
         V2 band_kind_size = {35, 22};
-        if (render_button(state, band_kind_name, band_kind_pos, band_kind_size, INPUT_NONE)) {
+        if (render_button(atelier, band_kind_name, band_kind_pos, band_kind_size, INPUT_NONE)) {
             // Toggle between BAND_CLOSED and BAND_OPEN
             band->kind = (band->kind == BAND_CLOSED) ? BAND_OPEN : BAND_CLOSED;
         }
@@ -1962,7 +1962,7 @@ Layout render_lens(AppState* state, Layout layout) {
 
         V2 button_pos = {layout.next.x + 45, layout.next.y};
         button_size = (V2){80, 22};
-        if (render_button(state, kind_name, button_pos, button_size, INPUT_NONE)) {
+        if (render_button(atelier, kind_name, button_pos, button_size, INPUT_NONE)) {
             // Cycle to next line_kind
             band->line_kind = (band->line_kind + 1) % KIND_COUNT;
         }
@@ -1972,7 +1972,7 @@ Layout render_lens(AppState* state, Layout layout) {
             // Decrement button (decrease exponent)
             V2 dec_pos = {button_pos.x + button_size.x + 10, layout.next.y};
             V2 small_button_size = {20, 22};
-            if (render_button(state, "-", dec_pos, small_button_size, INPUT_NONE)) {
+            if (render_button(atelier, "-", dec_pos, small_button_size, INPUT_NONE)) {
                 if (band->wavelength_scale > 0) {
                     band->wavelength_scale--;
                 }
@@ -1983,11 +1983,11 @@ Layout render_lens(AppState* state, Layout layout) {
             snprintf(scale_text, sizeof(scale_text), "%d", 1 << band->wavelength_scale);
             V2 text_pos = {dec_pos.x + small_button_size.x + 5, layout.next.y};
             SDL_Color white = {255, 255, 255, 255};
-            render_text(state, scale_text, text_pos, white);
+            render_text(atelier, scale_text, text_pos, white);
 
             // Increment button (increase exponent)
             V2 inc_pos = {text_pos.x + 40, layout.next.y};
-            if (render_button(state, "+", inc_pos, small_button_size, INPUT_NONE)) {
+            if (render_button(atelier, "+", inc_pos, small_button_size, INPUT_NONE)) {
                 if (band->wavelength_scale < 8) {
                     band->wavelength_scale++;
                 }
@@ -1997,7 +1997,7 @@ Layout render_lens(AppState* state, Layout layout) {
             V2 phase_pos = {inc_pos.x + small_button_size.x + 10, layout.next.y};
             V2 phase_button_size = {80, 22};
             const char* phase_text = band->wave_inverted ? "sin 0" : "sin pi";
-            if (render_button(state, phase_text, phase_pos, phase_button_size, HIGHLIGHTED(band->wave_inverted))) {
+            if (render_button(atelier, phase_text, phase_pos, phase_button_size, HIGHLIGHTED(band->wave_inverted))) {
                 band->wave_inverted = !band->wave_inverted;
             }
 
@@ -2005,7 +2005,7 @@ Layout render_lens(AppState* state, Layout layout) {
             V2 half_pos = {phase_pos.x + phase_button_size.x + 5, layout.next.y};
             V2 half_button_size = {50, 22};
             const char* half_text = band->wave_half_period ? "Full" : "Half";
-            if (render_button(state, half_text, half_pos, half_button_size, HIGHLIGHTED(band->wave_half_period))) {
+            if (render_button(atelier, half_text, half_pos, half_button_size, HIGHLIGHTED(band->wave_half_period))) {
                 band->wave_half_period = !band->wave_half_period;
             }
         }
@@ -2013,7 +2013,7 @@ Layout render_lens(AppState* state, Layout layout) {
         advance_vertical(&layout, 25);
 
         // Label position control - 3x3 anchor grid with offset inputs
-        int selected_pos = render_anchor_buttons(state, layout.next, 45, band->label_anchor);
+        int selected_pos = render_anchor_buttons(atelier, layout.next, 45, band->label_anchor);
         if (selected_pos >= 0) {
             band->label_anchor = selected_pos;
         }
@@ -2023,8 +2023,8 @@ Layout render_lens(AppState* state, Layout layout) {
         V2 x_input_pos = {layout.next.x + 50, layout.next.y + 5};
         V2 y_input_pos = {layout.next.x + 50, layout.next.y + 25};
 
-        render_numeric_input_field_full(state, &band->label_offset.x, x_input_pos, offset_input_size, false, 0.5f);
-        render_numeric_input_field_full(state, &band->label_offset.y, y_input_pos, offset_input_size, false, 0.5f);
+        render_numeric_input_field_full(atelier, &band->label_offset.x, x_input_pos, offset_input_size, false, 0.5f);
+        render_numeric_input_field_full(atelier, &band->label_offset.y, y_input_pos, offset_input_size, false, 0.5f);
 
         advance_vertical(&layout, 50);
 
@@ -2032,20 +2032,20 @@ Layout render_lens(AppState* state, Layout layout) {
     }
 
     // Apply band rules after all UI changes
-    apply_band_rules(&state->work->bands);
+    apply_band_rules(&atelier->work->bands);
 
     return layout;
 }
 
-void render_ui_panel(AppState* state) {
+void render_ui_panel(Atelier* atelier) {
     // Draw UI panel background
-    SDL_SetRenderDrawColor(state->renderer, 40, 40, 45, 255);
+    SDL_SetRenderDrawColor(atelier->renderer, 40, 40, 45, 255);
     SDL_Rect panel_rect = {VIEWPORT_WIDTH, 0, UI_PANEL_WIDTH, WINDOW_HEIGHT};
-    SDL_RenderFillRect(state->renderer, &panel_rect);
+    SDL_RenderFillRect(atelier->renderer, &panel_rect);
 
     // Draw panel border
-    SDL_SetRenderDrawColor(state->renderer, 60, 60, 65, 255);
-    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT);
+    SDL_SetRenderDrawColor(atelier->renderer, 60, 60, 65, 255);
+    SDL_RenderDrawLine(atelier->renderer, VIEWPORT_WIDTH, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT);
 
     Layout layout = {
         .next = {VIEWPORT_WIDTH + 20, 20},
@@ -2054,19 +2054,19 @@ void render_ui_panel(AppState* state) {
     };
 
     // Layer 1: Work management
-    layout = render_work_ui(state, layout);
+    layout = render_work_ui(atelier, layout);
     layout.row_start = layout.next;
 
     // Visual separator
-    SDL_SetRenderDrawColor(state->renderer, 80, 80, 85, 255);
-    SDL_RenderDrawLine(state->renderer, VIEWPORT_WIDTH + 10, layout.next.y, WINDOW_WIDTH - 10, layout.next.y);
+    SDL_SetRenderDrawColor(atelier->renderer, 80, 80, 85, 255);
+    SDL_RenderDrawLine(atelier->renderer, VIEWPORT_WIDTH + 10, layout.next.y, WINDOW_WIDTH - 10, layout.next.y);
     advance_vertical(&layout, 15);
 
     // Layer 2: Switch between SHELF (file list) and LENS (band editing)
-    if (state->ui_state.step == UI_SHELF) {
-        layout = render_shelf(state, layout);
+    if (atelier->ui_state.step == UI_SHELF) {
+        layout = render_shelf(atelier, layout);
     } else {
-        layout = render_lens(state, layout);
+        layout = render_lens(atelier, layout);
     }
 }
 
@@ -2119,30 +2119,30 @@ void render_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, 
     }
 }
 
-void render_work(AppState* state) {
+void render_work(Atelier* atelier) {
     // Clear label array
-    state->render_ctx.labels.length = 0;
+    atelier->render_ctx.labels.length = 0;
 
     // Draw bands along diagonal
-    for (size_t i = 0; i < state->work->bands.length; i++) {
-        Band* band = &state->work->bands.ptr[i];
+    for (size_t i = 0; i < atelier->work->bands.length; i++) {
+        Band* band = &atelier->work->bands.ptr[i];
 
         if (band->kind == BAND_OPEN) {
-            Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
+            Interval transformed = sliver_transform_interval(band->interval, &atelier->sliver_camera);
             {
                 Interval extended = {-2.0f, transformed.end};
-                int edge_flags = calculate_edge_flags(state->selected_corner, extended.start, extended.end);
+                int edge_flags = calculate_edge_flags(atelier->selected_corner, extended.start, extended.end);
                 if (edge_flags != 0) {
-                    render_band_geometry(&state->render_ctx.geometry, band, extended, state->diagonal, &state->camera, edge_flags);
-                    collect_label(state, band, extended);
+                    render_band_geometry(&atelier->render_ctx.geometry, band, extended, atelier->diagonal, &atelier->camera, edge_flags);
+                    collect_label(atelier, band, extended);
                 }
             }
             {
                 Interval extended = {transformed.start, 2.0f};
-                int edge_flags = calculate_edge_flags(state->selected_corner, extended.start, extended.end);
+                int edge_flags = calculate_edge_flags(atelier->selected_corner, extended.start, extended.end);
                 if (edge_flags != 0) {
-                    render_band_geometry(&state->render_ctx.geometry, band, extended, state->diagonal, &state->camera, edge_flags);
-                    collect_label(state, band, extended);
+                    render_band_geometry(&atelier->render_ctx.geometry, band, extended, atelier->diagonal, &atelier->camera, edge_flags);
+                    collect_label(atelier, band, extended);
                 }
             }
         } else {
@@ -2155,115 +2155,115 @@ void render_work(AppState* state) {
                     band->interval.start + j * band->stride,
                     band->interval.start + j * band->stride + size
                 };
-                Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
+                Interval transformed = sliver_transform_interval(interval, &atelier->sliver_camera);
 
                 // Calculate edge visibility flags and skip if no edges visible
-                int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
+                int edge_flags = calculate_edge_flags(atelier->selected_corner, transformed.start, transformed.end);
                 if (edge_flags == 0) {
                     continue;
                 }
 
                 // Draw band geometry
-                render_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
-                collect_label(state, band, transformed);
+                render_band_geometry(&atelier->render_ctx.geometry, band, transformed, atelier->diagonal, &atelier->camera, edge_flags);
+                collect_label(atelier, band, transformed);
             }
         }
     }
 }
 
-void render_viewport(AppState* state) {
+void render_viewport(Atelier* atelier) {
     // Clear geometry buffer for new frame
-    geometry_buffer_clear(&state->render_ctx.geometry);
+    geometry_buffer_clear(&atelier->render_ctx.geometry);
 
     // Set viewport clipping for left side
     SDL_Rect viewport = {0, 0, VIEWPORT_WIDTH, WINDOW_HEIGHT};
-    SDL_RenderSetClipRect(state->renderer, &viewport);
+    SDL_RenderSetClipRect(atelier->renderer, &viewport);
 
     // Draw bounding square outline using geometry buffer
     SDL_Color gray = {100, 100, 100, 255};
-    V2 tl = get_corner_position(state, CORNER_TL);
-    V2 tr = get_corner_position(state, CORNER_TR);
-    V2 br = get_corner_position(state, CORNER_BR);
-    V2 bl = get_corner_position(state, CORNER_BL);
+    V2 tl = get_corner_position(atelier, CORNER_TL);
+    V2 tr = get_corner_position(atelier, CORNER_TR);
+    V2 br = get_corner_position(atelier, CORNER_BR);
+    V2 bl = get_corner_position(atelier, CORNER_BL);
 
-    V2 tl_s = world_to_screen(tl, &state->camera);
-    V2 tr_s = world_to_screen(tr, &state->camera);
-    V2 br_s = world_to_screen(br, &state->camera);
-    V2 bl_s = world_to_screen(bl, &state->camera);
+    V2 tl_s = world_to_screen(tl, &atelier->camera);
+    V2 tr_s = world_to_screen(tr, &atelier->camera);
+    V2 br_s = world_to_screen(br, &atelier->camera);
+    V2 bl_s = world_to_screen(bl, &atelier->camera);
 
-    geometry_buffer_add_line(&state->render_ctx.geometry, tl_s, tr_s, 2.0f, gray);
-    geometry_buffer_add_line(&state->render_ctx.geometry, tr_s, br_s, 2.0f, gray);
-    geometry_buffer_add_line(&state->render_ctx.geometry, br_s, bl_s, 2.0f, gray);
-    geometry_buffer_add_line(&state->render_ctx.geometry, bl_s, tl_s, 2.0f, gray);
+    geometry_buffer_add_line(&atelier->render_ctx.geometry, tl_s, tr_s, 2.0f, gray);
+    geometry_buffer_add_line(&atelier->render_ctx.geometry, tr_s, br_s, 2.0f, gray);
+    geometry_buffer_add_line(&atelier->render_ctx.geometry, br_s, bl_s, 2.0f, gray);
+    geometry_buffer_add_line(&atelier->render_ctx.geometry, bl_s, tl_s, 2.0f, gray);
 
     // Draw corner indicators using geometry buffer
     for (int i = 0; i < 4; i++) {
-        V2 corner = get_corner_position(state, i);
-        V2 corner_s = world_to_screen(corner, &state->camera);
-        if (i == state->selected_corner) {
+        V2 corner = get_corner_position(atelier, i);
+        V2 corner_s = world_to_screen(corner, &atelier->camera);
+        if (i == atelier->selected_corner) {
             SDL_Color highlight = {255, 200, 100, 255};
-            geometry_buffer_add_arc(&state->render_ctx.geometry, corner_s,
-                                   HIGHLIGHT_SIZE * state->camera.scale,
+            geometry_buffer_add_arc(&atelier->render_ctx.geometry, corner_s,
+                                   HIGHLIGHT_SIZE * atelier->camera.scale,
                                    0, M_PI * 2.0f, 2.0f, highlight, 16);
         } else {
             SDL_Color gray = {150, 150, 150, 255};
-            geometry_buffer_add_arc(&state->render_ctx.geometry, corner_s,
-                                   (HIGHLIGHT_SIZE / 2) * state->camera.scale,
+            geometry_buffer_add_arc(&atelier->render_ctx.geometry, corner_s,
+                                   (HIGHLIGHT_SIZE / 2) * atelier->camera.scale,
                                    0, M_PI * 2.0f, 2.0f, gray, 12);
         }
     }
 
-    if (state->selected_corner != CORNER_NONE) {
+    if (atelier->selected_corner != CORNER_NONE) {
         // Draw diagonal using geometry buffer
         SDL_Color diagonal_color = {200, 200, 255, 255};
-        V2 diag_start_s = world_to_screen(state->diagonal.start, &state->camera);
-        V2 diag_end_s = world_to_screen(state->diagonal.end, &state->camera);
-        geometry_buffer_add_line(&state->render_ctx.geometry, diag_start_s, diag_end_s, 2.0f, diagonal_color);
+        V2 diag_start_s = world_to_screen(atelier->diagonal.start, &atelier->camera);
+        V2 diag_end_s = world_to_screen(atelier->diagonal.end, &atelier->camera);
+        geometry_buffer_add_line(&atelier->render_ctx.geometry, diag_start_s, diag_end_s, 2.0f, diagonal_color);
 
-        render_work(state);
+        render_work(atelier);
 
         // Draw orientation edge from selected corner using geometry buffer
-        V2 selected = get_corner_position(state, state->selected_corner);
-        V2 selected_s = world_to_screen(selected, &state->camera);
-        V2 orient_end_s = world_to_screen(state->diagonal.end, &state->camera);
+        V2 selected = get_corner_position(atelier, atelier->selected_corner);
+        V2 selected_s = world_to_screen(selected, &atelier->camera);
+        V2 orient_end_s = world_to_screen(atelier->diagonal.end, &atelier->camera);
         SDL_Color orient_color = {255, 100, 100, 255};
-        geometry_buffer_add_line(&state->render_ctx.geometry, selected_s, orient_end_s, 2.0f, orient_color);
+        geometry_buffer_add_line(&atelier->render_ctx.geometry, selected_s, orient_end_s, 2.0f, orient_color);
     }
 
     // Render all geometry in one batch
-    if (state->render_ctx.geometry.index_count > 0) {
-        SDL_RenderGeometry(state->renderer, state->render_ctx.white_texture,
-                          state->render_ctx.geometry.vertices, state->render_ctx.geometry.vertex_count,
-                          state->render_ctx.geometry.indices, state->render_ctx.geometry.index_count);
+    if (atelier->render_ctx.geometry.index_count > 0) {
+        SDL_RenderGeometry(atelier->renderer, atelier->render_ctx.white_texture,
+                          atelier->render_ctx.geometry.vertices, atelier->render_ctx.geometry.vertex_count,
+                          atelier->render_ctx.geometry.indices, atelier->render_ctx.geometry.index_count);
     }
 
     // Draw collected labels
-    for (size_t i = 0; i < state->render_ctx.labels.length; i++) {
-        LabelDraw* label = &state->render_ctx.labels.ptr[i];
-        render_text(state, label->label, label->position, label->color);
+    for (size_t i = 0; i < atelier->render_ctx.labels.length; i++) {
+        LabelDraw* label = &atelier->render_ctx.labels.ptr[i];
+        render_text(atelier, label->label, label->position, label->color);
     }
 
     // Clear clipping rect to draw UI
-    SDL_RenderSetClipRect(state->renderer, NULL);
+    SDL_RenderSetClipRect(atelier->renderer, NULL);
 }
 
-void render(AppState* state) {
+void render(Atelier* atelier) {
     // Clear screen
-    SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
-    SDL_RenderClear(state->renderer);
+    SDL_SetRenderDrawColor(atelier->renderer, 30, 30, 30, 255);
+    SDL_RenderClear(atelier->renderer);
 
-    render_viewport(state);
+    render_viewport(atelier);
 
     // Render UI panel on the right
-    render_ui_panel(state);
+    render_ui_panel(atelier);
 
-    SDL_RenderPresent(state->renderer);
+    SDL_RenderPresent(atelier->renderer);
 }
 
-Corner detect_corner_click(AppState* state, V2 mouse) {
-    V2 world_mouse = screen_to_world(mouse, &state->camera);
+Corner detect_corner_click(Atelier* atelier, V2 mouse) {
+    V2 world_mouse = screen_to_world(mouse, &atelier->camera);
     for (int i = 0; i < 4; i++) {
-        V2 corner = get_corner_position(state, i);
+        V2 corner = get_corner_position(atelier, i);
         if (v2_dist(world_mouse, corner) <= CORNER_RADIUS) {
             return i;
         }
@@ -2271,7 +2271,7 @@ Corner detect_corner_click(AppState* state, V2 mouse) {
     return CORNER_NONE;
 }
 
-void handle_mouse_click(AppState* state, int x, int y) {
+void handle_mouse_click(Atelier* atelier, int x, int y) {
     // Only handle clicks within the viewport
     if (x >= VIEWPORT_WIDTH) {
         // Click is in UI panel - handle UI interactions here
@@ -2279,11 +2279,11 @@ void handle_mouse_click(AppState* state, int x, int y) {
     }
 
     V2 mouse = {(float)x, (float)y};
-    Corner clicked = detect_corner_click(state, mouse);
+    Corner clicked = detect_corner_click(atelier, mouse);
 
     if (clicked != CORNER_NONE) {
-        state->selected_corner = clicked;
-        calculate_diagonal(state);
+        atelier->selected_corner = clicked;
+        calculate_diagonal(atelier);
     }
 }
 
@@ -2299,59 +2299,59 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    AppState state = {0};
-    state.running = true;
-    state.ui_state.step = UI_LENS;
-    state.ui_state.shelf_mode_save = false;
-    state.ui_state.suggested_filename[0] = '\0';
-    state.selected_corner = CORNER_BR;  // Start with bottom-right selected
-    state.label_anchor = LABEL_BOTTOM_RIGHT;  // Start with bottom-right labels
-    state.band_offset = 0;  // Start at beginning of band list
-    state.bounding_center = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center in viewport
-    state.bounding_half = (BOUNDING_SIZE - BOUNDING_PADDING) / 2;
+    Atelier atelier = {0};
+    atelier.running = true;
+    atelier.ui_state.step = UI_LENS;
+    atelier.ui_state.shelf_mode_save = false;
+    atelier.ui_state.suggested_filename[0] = '\0';
+    atelier.selected_corner = CORNER_BR;  // Start with bottom-right selected
+    atelier.label_anchor = LABEL_BOTTOM_RIGHT;  // Start with bottom-right labels
+    atelier.band_offset = 0;  // Start at beginning of band list
+    atelier.bounding_center = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center in viewport
+    atelier.bounding_half = (BOUNDING_SIZE - BOUNDING_PADDING) / 2;
 
     // Initialize camera (centered in viewport)
-    state.camera.offset = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center of viewport
-    state.camera.scale = 1.0f;  // Default zoom
-    state.dragging = false;
+    atelier.camera.offset = (V2){VIEWPORT_WIDTH / 2, WINDOW_HEIGHT / 2};  // Center of viewport
+    atelier.camera.scale = 1.0f;  // Default zoom
+    atelier.dragging = false;
 
     // Initialize sliver camera to show 0-10 range
-    state.sliver_camera.offset = 0.0f;  // Start at 0
-    state.sliver_camera.scale = 0.1f;   // Scale 1:1 shows full 0-1 in viewport, which maps to 0-10 in our coordinates
+    atelier.sliver_camera.offset = 0.0f;  // Start at 0
+    atelier.sliver_camera.scale = 0.1f;   // Scale 1:1 shows full 0-1 in viewport, which maps to 0-10 in our coordinates
 
     // Initialize work (bands and labels in single arena)
-    state.work = work_new(128);  // 128 bands
+    atelier.work = work_new(128);  // 128 bands
 
-    string_builder_init(&state.string_builder);
+    string_builder_init(&atelier.string_builder);
 
     // Create window with HiDPI support (from ../sd)
-    state.window = SDL_CreateWindow("Squares on Diagonal",
+    atelier.window = SDL_CreateWindow("Squares on Diagonal",
                                    SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                    WINDOW_WIDTH, WINDOW_HEIGHT,
                                    SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE);
-    if (!state.window) {
+    if (!atelier.window) {
         fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
     }
 
-    state.renderer = SDL_CreateRenderer(state.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!state.renderer) {
+    atelier.renderer = SDL_CreateRenderer(atelier.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!atelier.renderer) {
         fprintf(stderr, "SDL_CreateRenderer failed: %s\n", SDL_GetError());
-        SDL_DestroyWindow(state.window);
+        SDL_DestroyWindow(atelier.window);
         SDL_Quit();
         return 1;
     }
 
     // Initialize render context
-    render_context_init(&state.render_ctx, state.renderer);
+    render_context_init(&atelier.render_ctx, atelier.renderer);
 
     // Set up logical size for consistent coordinates
-    SDL_RenderSetLogicalSize(state.renderer, WINDOW_WIDTH, WINDOW_HEIGHT);
+    SDL_RenderSetLogicalSize(atelier.renderer, WINDOW_WIDTH, WINDOW_HEIGHT);
 
     // Load font with 2x size for supersampling
-    state.font = TTF_OpenFont("SourceCodePro-Regular.ttf", 36);  // 2x size for supersampling
-    if (!state.font) {
+    atelier.font = TTF_OpenFont("SourceCodePro-Regular.ttf", 36);  // 2x size for supersampling
+    if (!atelier.font) {
         fprintf(stderr, "Failed to load SourceCodePro-Regular.ttf: %s\n", TTF_GetError());
         // Continue without font - UI text won't be rendered
     }
@@ -2359,44 +2359,44 @@ int main(int argc, char* argv[]) {
     // Check for HiDPI
     int window_w, window_h;
     int render_w, render_h;
-    SDL_GetWindowSize(state.window, &window_w, &window_h);
-    SDL_GetRendererOutputSize(state.renderer, &render_w, &render_h);
+    SDL_GetWindowSize(atelier.window, &window_w, &window_h);
+    SDL_GetRendererOutputSize(atelier.renderer, &render_w, &render_h);
     printf("Window: %dx%d, Renderer: %dx%d\n", window_w, window_h, render_w, render_h);
     if (render_w != window_w || render_h != window_h) {
         printf("HiDPI detected: scale factor %.2fx\n", (float)render_w / window_w);
     }
 
-    calculate_diagonal(&state);
-    init_bands_rand(&state);
+    calculate_diagonal(&atelier);
+    init_bands_rand(&atelier);
 
     // Enable text input for input fields
     SDL_StartTextInput();
 
     SDL_Event event;
-    while (state.running) {
+    while (atelier.running) {
         // Update mouse state before processing events
-        state.mouse_was_pressed = state.mouse_pressed;
+        atelier.mouse_was_pressed = atelier.mouse_pressed;
         int mouse_x, mouse_y;
         Uint32 mouse_state = SDL_GetMouseState(&mouse_x, &mouse_y);
-        state.mouse_pos = (V2){(float)mouse_x, (float)mouse_y};
-        state.mouse_pressed = (mouse_state & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+        atelier.mouse_pos = (V2){(float)mouse_x, (float)mouse_y};
+        atelier.mouse_pressed = (mouse_state & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
 
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
                 case SDL_QUIT:
-                    state.running = false;
+                    atelier.running = false;
                     break;
 
                 case SDL_MOUSEBUTTONDOWN:
                     if (event.button.button == SDL_BUTTON_LEFT) {
                         if (event.button.x < VIEWPORT_WIDTH) {
                             if (!(SDL_GetModState() & KMOD_SHIFT)) {
-                                handle_mouse_click(&state, event.button.x, event.button.y);
+                                handle_mouse_click(&atelier, event.button.x, event.button.y);
                             } else {
                                 // Shift+click to drag
-                                state.dragging = true;
-                                state.drag_start = (V2){(float)event.button.x, (float)event.button.y};
-                                state.camera_start = state.camera.offset;
+                                atelier.dragging = true;
+                                atelier.drag_start = (V2){(float)event.button.x, (float)event.button.y};
+                                atelier.camera_start = atelier.camera.offset;
                             }
                         }
                         // UI panel clicks are handled by button hover check
@@ -2404,9 +2404,9 @@ int main(int argc, char* argv[]) {
                               event.button.button == SDL_BUTTON_MIDDLE) {
                         // Start dragging only if in viewport
                         if (event.button.x < VIEWPORT_WIDTH) {
-                            state.dragging = true;
-                            state.drag_start = (V2){(float)event.button.x, (float)event.button.y};
-                            state.camera_start = state.camera.offset;
+                            atelier.dragging = true;
+                            atelier.drag_start = (V2){(float)event.button.x, (float)event.button.y};
+                            atelier.camera_start = atelier.camera.offset;
                         }
                     }
                     break;
@@ -2415,15 +2415,15 @@ int main(int argc, char* argv[]) {
                     if (event.button.button == SDL_BUTTON_RIGHT ||
                         event.button.button == SDL_BUTTON_MIDDLE ||
                         event.button.button == SDL_BUTTON_LEFT) {
-                        state.dragging = false;
+                        atelier.dragging = false;
                     }
                     break;
 
                 case SDL_MOUSEMOTION:
-                    if (state.dragging) {
+                    if (atelier.dragging) {
                         V2 mouse = {(float)event.motion.x, (float)event.motion.y};
-                        V2 delta = v2_scale(v2_sub(mouse, state.drag_start), 1.0f / state.camera.scale);
-                        state.camera.offset = v2_sub(state.camera_start, delta);
+                        V2 delta = v2_scale(v2_sub(mouse, atelier.drag_start), 1.0f / atelier.camera.scale);
+                        atelier.camera.offset = v2_sub(atelier.camera_start, delta);
                     }
                     break;
 
@@ -2439,50 +2439,50 @@ int main(int argc, char* argv[]) {
                         }
 
                         V2 mouse_screen = {(float)mouse_x, (float)mouse_y};
-                        V2 mouse_world_before = screen_to_world(mouse_screen, &state.camera);
+                        V2 mouse_world_before = screen_to_world(mouse_screen, &atelier.camera);
 
                         // Smoother zoom with smaller increments
                         float zoom_speed = 0.05f;
                         float zoom_factor = 1.0f + (event.wheel.y * zoom_speed);
-                        state.camera.scale *= zoom_factor;
+                        atelier.camera.scale *= zoom_factor;
 
                         // Clamp zoom level
-                        if (state.camera.scale < 0.1f) state.camera.scale = 0.1f;
-                        if (state.camera.scale > 10.0f) state.camera.scale = 10.0f;
+                        if (atelier.camera.scale < 0.1f) atelier.camera.scale = 0.1f;
+                        if (atelier.camera.scale > 10.0f) atelier.camera.scale = 10.0f;
 
                         // Adjust camera offset to zoom towards mouse position
-                        V2 mouse_world_after = screen_to_world(mouse_screen, &state.camera);
+                        V2 mouse_world_after = screen_to_world(mouse_screen, &atelier.camera);
                         V2 world_diff = v2_sub(mouse_world_after, mouse_world_before);
-                        state.camera.offset = v2_sub(state.camera.offset, world_diff);
+                        atelier.camera.offset = v2_sub(atelier.camera.offset, world_diff);
                     }
                     break;
 
                 case SDL_TEXTINPUT:
                     // Handle text input for active input field
-                    if (state.active_field.ptr != NULL) {
+                    if (atelier.active_field.ptr != NULL) {
                         const char* text = event.text.text;
 
                         while (*text) {
                             char c = *text++;
                             bool accept = false;
 
-                            if (!state.active_field.is_numeric) {
+                            if (!atelier.active_field.is_numeric) {
                                 // Accept any printable character for text fields
                                 accept = (c >= 32 && c <= 126);
                             } else {
                                 // Accept numbers, decimal point, and minus sign for numeric fields
-                                accept = ((c >= '0' && c <= '9') || c == '.' || (c == '-' && state.cursor_pos == 0));
+                                accept = ((c >= '0' && c <= '9') || c == '.' || (c == '-' && atelier.cursor_pos == 0));
                             }
 
                             if (accept) {
                                 // Insert character at cursor position
-                                int len = strlen(state.input_buffer);
-                                if (len < sizeof(state.input_buffer) - 1) {
-                                    memmove(&state.input_buffer[state.cursor_pos + 1],
-                                           &state.input_buffer[state.cursor_pos],
-                                           len - state.cursor_pos + 1);
-                                    state.input_buffer[state.cursor_pos] = c;
-                                    state.cursor_pos++;
+                                int len = strlen(atelier.input_buffer);
+                                if (len < sizeof(atelier.input_buffer) - 1) {
+                                    memmove(&atelier.input_buffer[atelier.cursor_pos + 1],
+                                           &atelier.input_buffer[atelier.cursor_pos],
+                                           len - atelier.cursor_pos + 1);
+                                    atelier.input_buffer[atelier.cursor_pos] = c;
+                                    atelier.cursor_pos++;
                                 }
                             }
                         }
@@ -2491,8 +2491,8 @@ int main(int argc, char* argv[]) {
 
                 case SDL_KEYDOWN:
                     // Handle input field keyboard input first
-                    if (state.active_field.ptr != NULL) {
-                        float* active_value = state.active_field.is_numeric ? (float*)state.active_field.ptr : NULL;
+                    if (atelier.active_field.ptr != NULL) {
+                        float* active_value = atelier.active_field.is_numeric ? (float*)atelier.active_field.ptr : NULL;
                         SDL_Keycode key = event.key.keysym.sym;
                         SDL_Keymod mod = SDL_GetModState();
 
@@ -2500,10 +2500,10 @@ int main(int argc, char* argv[]) {
                             case SDLK_ESCAPE: {
                                 // Cancel editing - for text fields, no need to restore
                                 // For numeric fields, restore original value
-                                if (state.active_field.is_numeric && active_value) {
-                                    *active_value = state.input_original_value;
+                                if (atelier.active_field.is_numeric && active_value) {
+                                    *active_value = atelier.input_original_value;
                                 }
-                                state.active_field.ptr = NULL;
+                                atelier.active_field.ptr = NULL;
                                 // Keep text input active
                                 break;
                             }
@@ -2511,22 +2511,22 @@ int main(int argc, char* argv[]) {
                             case SDLK_RETURN:
                             case SDLK_KP_ENTER: {
                                 // Apply value and deactivate
-                                if (!state.active_field.is_numeric) {
+                                if (!atelier.active_field.is_numeric) {
                                     // It's a text field - copy directly to the pointer
-                                    char* text_field = (char*)state.active_field.ptr;
-                                    strncpy(text_field, state.input_buffer, 31);  // Band labels are 32 bytes
+                                    char* text_field = (char*)atelier.active_field.ptr;
+                                    strncpy(text_field, atelier.input_buffer, 31);  // Band labels are 32 bytes
                                     text_field[31] = '\0';
-                                } else if (active_value && strlen(state.input_buffer) > 0) {
-                                    *active_value = atof(state.input_buffer);
+                                } else if (active_value && strlen(atelier.input_buffer) > 0) {
+                                    *active_value = atof(atelier.input_buffer);
                                 }
-                                state.active_field.ptr = NULL;
+                                atelier.active_field.ptr = NULL;
                                 // Don't stop text input - it causes issues with subsequent fields
                                 break;
                             }
 
                             case SDLK_UP:
                                 // Increment value (only for numeric fields)
-                                if (state.active_field.is_numeric && active_value) {
+                                if (atelier.active_field.is_numeric && active_value) {
                                     if (mod & KMOD_SHIFT) {
                                         *active_value += 1.0f;
                                     } else if (mod & KMOD_CTRL) {
@@ -2534,14 +2534,14 @@ int main(int argc, char* argv[]) {
                                     } else {
                                         *active_value += 0.1f;
                                     }
-                                    snprintf(state.input_buffer, sizeof(state.input_buffer), "%.2f", *active_value);
-                                    state.cursor_pos = strlen(state.input_buffer);
+                                    snprintf(atelier.input_buffer, sizeof(atelier.input_buffer), "%.2f", *active_value);
+                                    atelier.cursor_pos = strlen(atelier.input_buffer);
                                 }
                                 break;
 
                             case SDLK_DOWN:
                                 // Decrement value (only for numeric fields)
-                                if (state.active_field.is_numeric && active_value) {
+                                if (atelier.active_field.is_numeric && active_value) {
                                     if (mod & KMOD_SHIFT) {
                                         *active_value -= 1.0f;
                                     } else if (mod & KMOD_CTRL) {
@@ -2549,41 +2549,41 @@ int main(int argc, char* argv[]) {
                                     } else {
                                         *active_value -= 0.1f;
                                     }
-                                    snprintf(state.input_buffer, sizeof(state.input_buffer), "%.2f", *active_value);
-                                    state.cursor_pos = strlen(state.input_buffer);
+                                    snprintf(atelier.input_buffer, sizeof(atelier.input_buffer), "%.2f", *active_value);
+                                    atelier.cursor_pos = strlen(atelier.input_buffer);
                                 }
                                 break;
 
                             case SDLK_BACKSPACE:
                                 // Delete character before cursor
-                                if (state.cursor_pos > 0) {
-                                    memmove(&state.input_buffer[state.cursor_pos - 1],
-                                           &state.input_buffer[state.cursor_pos],
-                                           strlen(&state.input_buffer[state.cursor_pos]) + 1);
-                                    state.cursor_pos--;
+                                if (atelier.cursor_pos > 0) {
+                                    memmove(&atelier.input_buffer[atelier.cursor_pos - 1],
+                                           &atelier.input_buffer[atelier.cursor_pos],
+                                           strlen(&atelier.input_buffer[atelier.cursor_pos]) + 1);
+                                    atelier.cursor_pos--;
                                 }
                                 break;
 
                             case SDLK_LEFT:
                                 // Move cursor left
-                                if (state.cursor_pos > 0) {
-                                    state.cursor_pos--;
+                                if (atelier.cursor_pos > 0) {
+                                    atelier.cursor_pos--;
                                 }
                                 break;
 
                             case SDLK_RIGHT:
                                 // Move cursor right
-                                if (state.cursor_pos < strlen(state.input_buffer)) {
-                                    state.cursor_pos++;
+                                if (atelier.cursor_pos < strlen(atelier.input_buffer)) {
+                                    atelier.cursor_pos++;
                                 }
                                 break;
 
                             case SDLK_HOME:
-                                state.cursor_pos = 0;
+                                atelier.cursor_pos = 0;
                                 break;
 
                             case SDLK_END:
-                                state.cursor_pos = strlen(state.input_buffer);
+                                atelier.cursor_pos = strlen(atelier.input_buffer);
                                 break;
 
                             default:
@@ -2597,17 +2597,17 @@ int main(int argc, char* argv[]) {
                     switch (event.key.keysym.sym) {
                         case SDLK_ESCAPE:
                         case SDLK_q:
-                            state.running = false;
+                            atelier.running = false;
                             break;
                         case SDLK_f:
                         case SDLK_F11:
                             // Toggle fullscreen
                             {
-                                Uint32 flags = SDL_GetWindowFlags(state.window);
+                                Uint32 flags = SDL_GetWindowFlags(atelier.window);
                                 if (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) {
-                                    SDL_SetWindowFullscreen(state.window, 0);
+                                    SDL_SetWindowFullscreen(atelier.window, 0);
                                 } else {
-                                    SDL_SetWindowFullscreen(state.window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+                                    SDL_SetWindowFullscreen(atelier.window, SDL_WINDOW_FULLSCREEN_DESKTOP);
                                 }
                             }
                             break;
@@ -2616,33 +2616,33 @@ int main(int argc, char* argv[]) {
                         case SDLK_LEFT:
                             {
                                 // Zoom out sliver from center (show more range)
-                                float center = state.sliver_camera.offset + 0.5f / state.sliver_camera.scale;
-                                state.sliver_camera.scale /= 1.2f;
-                                if (state.sliver_camera.scale < 0.01f) state.sliver_camera.scale = 0.01f;  // Min zoom: show 100 units
-                                state.sliver_camera.offset = center - 0.5f / state.sliver_camera.scale;
+                                float center = atelier.sliver_camera.offset + 0.5f / atelier.sliver_camera.scale;
+                                atelier.sliver_camera.scale /= 1.2f;
+                                if (atelier.sliver_camera.scale < 0.01f) atelier.sliver_camera.scale = 0.01f;  // Min zoom: show 100 units
+                                atelier.sliver_camera.offset = center - 0.5f / atelier.sliver_camera.scale;
                             }
                             break;
                         case SDLK_RIGHT:
                             {
                                 // Zoom in sliver from center (show less range)
-                                float center = state.sliver_camera.offset + 0.5f / state.sliver_camera.scale;
-                                state.sliver_camera.scale *= 1.2f;
-                                if (state.sliver_camera.scale > 2.0f) state.sliver_camera.scale = 2.0f;  // Max zoom: show 0.5 units
-                                state.sliver_camera.offset = center - 0.5f / state.sliver_camera.scale;
+                                float center = atelier.sliver_camera.offset + 0.5f / atelier.sliver_camera.scale;
+                                atelier.sliver_camera.scale *= 1.2f;
+                                if (atelier.sliver_camera.scale > 2.0f) atelier.sliver_camera.scale = 2.0f;  // Max zoom: show 0.5 units
+                                atelier.sliver_camera.offset = center - 0.5f / atelier.sliver_camera.scale;
                             }
                             break;
                         case SDLK_UP:
                             // Pan sliver view left (move by 1 unit in the 0-10 space)
-                            state.sliver_camera.offset -= 0.1f / state.sliver_camera.scale;
+                            atelier.sliver_camera.offset -= 0.1f / atelier.sliver_camera.scale;
                             break;
                         case SDLK_DOWN:
                             // Pan sliver view right (move by 1 unit in the 0-10 space)
-                            state.sliver_camera.offset += 0.1f / state.sliver_camera.scale;
+                            atelier.sliver_camera.offset += 0.1f / atelier.sliver_camera.scale;
                             break;
                         case SDLK_0:
                             // Reset sliver camera to show full 0-10 range
-                            state.sliver_camera.offset = 0.0f;
-                            state.sliver_camera.scale = 0.1f;  // Show 0-10 range
+                            atelier.sliver_camera.offset = 0.0f;
+                            atelier.sliver_camera.scale = 0.1f;  // Show 0-10 range
                             break;
                     }
                     break;
@@ -2650,24 +2650,24 @@ int main(int argc, char* argv[]) {
         }
 
 
-        render(&state);
+        render(&atelier);
         SDL_Delay(16);  // ~60 FPS
     }
 
     // Cleanup - free all works in list
-    Work* work = state.work;
+    Work* work = atelier.work;
     while (work && work->prev) work = work->prev;
     while (work) {
         Work* next = work->next;
         work_close(work);
         work = next;
     }
-    render_context_free(&state.render_ctx);
-    if (state.font) {
-        TTF_CloseFont(state.font);
+    render_context_free(&atelier.render_ctx);
+    if (atelier.font) {
+        TTF_CloseFont(atelier.font);
     }
-    SDL_DestroyRenderer(state.renderer);
-    SDL_DestroyWindow(state.window);
+    SDL_DestroyRenderer(atelier.renderer);
+    SDL_DestroyWindow(atelier.window);
     TTF_Quit();
     SDL_Quit();
 
