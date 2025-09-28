@@ -302,19 +302,26 @@ When implementing rounded rectangles for squares on a 45° diagonal, corners don
 ### Code Organization Insights
  - **Parameterization**: Using t ∈ [0,1] for positioning along diagonal, but accepting user definitions in different ranges (0-10) for convenience
  - **State Management**: `AppState` struct containing all mutable state makes animation and interaction handling cleaner
- - **Separation of Concerns**: `draw_square` function takes diagonal endpoints and handles all square rendering logic internally
+ - **Separation of Concerns**: `draw_band_geometry()` function takes diagonal endpoints and handles all square rendering logic internally
  - **Dual Camera System**: Separating 2D viewport navigation from 1D parameter space navigation provides intuitive control
  - **Interval Abstraction**: Using `Interval` struct for (start, end) pairs makes transformations more composable
- - **Dynamic Arrays**: Custom `SquareArray` and `BandArray` structs manage their own memory with capacity/length tracking
+ - **Dynamic Arrays**: Custom `BandArray` structs manage their own memory with capacity/length tracking
  - **Data-Driven Architecture**: 
-   - `Band` struct encapsulates pattern generation (start, end, stride, repeat) with visual properties (kind, color)
+   - `Band` struct encapsulates pattern generation (start, end, stride, repeat) with visual properties (kind, color, line_kind)
    - `repeat` field: 0 generates single interval, n generates n+1 intervals total
-   - Bands stored persistently in `BandArray`, squares generated on demand
+   - Bands stored persistently in `BandArray`
    - Clean separation between data definition and rendering
+ - **Direct Rendering Architecture**:
+   - No intermediate flattened representation
+   - `render_work()` loops through `work->bands` and generates geometry on-the-fly
+   - BAND_OPEN: Renders two intervals extending to ±infinity
+   - BAND_CLOSED: Renders `repeat + 1` intervals with stride
+   - Labels collected during geometry generation in `LabelDrawArray`
+   - `render_labels()` draws all collected labels in one pass
  - **Dynamic Band Positioning**:
    - `follow_previous` flag enables bands to automatically track previous band's end position
    - Only start position updates, end remains fixed (dynamic sizing)
-   - Implemented in `generate_squares_from_bands()` before interval generation
+   - Implemented in `apply_band_rules()` called at end of `draw_lens()`
    - Copy operation preserves original size but enables auto-positioning
    - Split operation creates two bands:
      - `band_array_split()` divides at midpoint `(start + end) / 2`
@@ -323,10 +330,16 @@ When implementing rounded rectangles for squares on a 45° diagonal, corners don
      - Both halves retain all visual properties from original
  - **Split Layout Architecture**:
    - Viewport on left (1400px) for sliver rendering with clipping
-   - UI panel on right (520px) for future controls
+   - UI panel on right (520px) for controls
    - Mouse interactions bounded to viewport area
    - Camera transforms adjusted for viewport centering
  - **Natural Coordinate System**:
    - Bands defined in intuitive 0-10 range
    - Sliver camera manages view into this space
    - Automatic normalization for diagonal interpolation
+ - **Rendering Pipeline**:
+   - `render()` → `render_viewport()` → `render_work()` + `render_labels()`
+   - Geometry and labels generated in single pass through bands
+   - `collect_label()` helper extracts label positioning logic
+   - `calculate_edge_flags()` determines which edges to draw based on visibility
+   - `anchor_to_position()` computes label position from anchor + offset
