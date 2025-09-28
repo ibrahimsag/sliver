@@ -203,7 +203,6 @@ typedef struct {
     Corner selected_corner;
     Diagonal diagonal;
     Work* work;           // Current work (pointer into linked list)
-    BandArray flattened;  // Flattened bands (temporary for rendering)
     StringBuilder string_builder;  // String builder for building strings
     Camera camera;  // For 2D viewport movement
     SliverCamera sliver_camera;  // For 1D parameter space windowing
@@ -1190,51 +1189,6 @@ void apply_band_rules(BandArray* bands) {
     }
 }
 
-void flatten_bands(BandArray* source, BandArray* dest) {
-    band_array_clear(dest);
-
-    for (size_t i = 0; i < source->length; i++) {
-        Band* band = &source->ptr[i];
-
-        if (band->kind == BAND_OPEN) {
-            // For open bands, create two intervals: (-inf, end] and [start, +inf)
-            Band flattened1 = *band;  // Copy all fields
-            flattened1.interval.start = -1000.0f;  // Large negative value for -infinity
-            flattened1.interval.end = band->interval.end;
-            flattened1.stride = 0;
-            flattened1.repeat = 0;
-            flattened1.follow_previous = false;
-            flattened1.kind = BAND_CLOSED;  // Flattened bands are always closed
-            band_array_add(dest, flattened1);
-
-            Band flattened2 = *band;  // Copy all fields
-            flattened2.interval.start = band->interval.start;
-            flattened2.interval.end = 1000.0f;  // Large positive value for +infinity
-            flattened2.stride = 0;
-            flattened2.repeat = 0;
-            flattened2.follow_previous = false;
-            flattened2.kind = BAND_CLOSED;  // Flattened bands are always closed
-            band_array_add(dest, flattened2);
-        } else {
-            // Normal closed band behavior
-            int count = band->repeat + 1;  // repeat=0 means 1 interval
-            float size = band->interval.end - band->interval.start;
-
-            for (int j = 0; j < count; j++) {
-                Band flattened = *band;  // Copy all fields
-                flattened.interval.start = band->interval.start + j * band->stride;
-                flattened.interval.end = flattened.interval.start + size;
-                flattened.stride = 0;  // No repetition in flattened bands
-                flattened.repeat = 0;  // Single interval
-                flattened.follow_previous = false;  // Flattened bands don't follow
-                // label pointer stays the same - no reallocation
-
-                band_array_add(dest, flattened);
-            }
-        }
-    }
-}
-
 // Create a new band with random color
 void add_random_band(AppState* state) {
     // Random hue for variety, fixed lightness for consistency
@@ -2131,11 +2085,11 @@ void draw_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Di
 }
 
 void render_work(AppState* state) {
-    // Draw flattened bands along diagonal
-    for (size_t i = 0; i < state->flattened.length; i++) {
-        Band* band = &state->flattened.ptr[i];
+    // Draw bands along diagonal
+    for (size_t i = 0; i < state->work->bands.length; i++) {
+        Band* band = &state->work->bands.ptr[i];
 
-        // Apply sliver transform to the square's interval (from 0-10 space to viewport space)
+        // Apply sliver transform to the band's interval (from 0-10 space to viewport space)
         Interval transformed = sliver_transform_interval(band->interval, &state->sliver_camera);
 
         // Calculate edge visibility flags and skip if no edges visible
@@ -2150,9 +2104,9 @@ void render_work(AppState* state) {
 }
 
 void render_labels(AppState* state) {
-    // Draw labels for flattened bands (after geometry, still within clipping rect)
-    for (size_t i = 0; i < state->flattened.length; i++) {
-        Band* band = &state->flattened.ptr[i];
+    // Draw labels for bands (after geometry, still within clipping rect)
+    for (size_t i = 0; i < state->work->bands.length; i++) {
+        Band* band = &state->work->bands.ptr[i];
 
         // Skip if no label
         if (!band->label || band->label[0] == '\0') continue;
@@ -2250,9 +2204,6 @@ void render_viewport(AppState* state) {
 }
 
 void render(AppState* state) {
-    // Regenerate squares from bands every frame (immediate mode)
-    flatten_bands(&state->work->bands, &state->flattened);
-
     // Clear screen
     SDL_SetRenderDrawColor(state->renderer, 30, 30, 30, 255);
     SDL_RenderClear(state->renderer);
@@ -2326,9 +2277,6 @@ int main(int argc, char* argv[]) {
 
     // Initialize work (bands and labels in single arena)
     state.work = work_new(128, 128);  // 128 bands, 128 labels
-
-    // Initialize flattened array separately (dynamic, not part of work)
-    band_array_init(&state.flattened, 128*100);  // Large capacity for flattened bands
 
     string_builder_init(&state.string_builder);
 
@@ -2670,7 +2618,6 @@ int main(int argc, char* argv[]) {
         work_close(work);
         work = next;
     }
-    band_array_free(&state.flattened);
     render_context_free(&state.render_ctx);
     if (state.font) {
         TTF_CloseFont(state.font);
