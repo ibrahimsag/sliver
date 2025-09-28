@@ -398,21 +398,7 @@ LabelAnchor rotate_anchor_for_corner(LabelAnchor anchor, Corner corner) {
     }
 }
 
-V2 anchor_to_position(LabelAnchor anchor, Interval transformed, Diagonal diagonal) {
-    // Clamp to visible range [0, 1]
-    transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
-    transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
-
-    // Get the two diagonal endpoints
-    V2 p1 = v2_lerp(diagonal.start, diagonal.end, transformed.start);
-    V2 p2 = v2_lerp(diagonal.start, diagonal.end, transformed.end);
-
-    // Calculate bounding box
-    float min_x = fminf(p1.x, p2.x);
-    float max_x = fmaxf(p1.x, p2.x);
-    float min_y = fminf(p1.y, p2.y);
-    float max_y = fmaxf(p1.y, p2.y);
-
+V2 anchor_to_position(LabelAnchor anchor, float min_x, float max_x, float min_y, float max_y) {
     float center_x = (min_x + max_x) / 2.0f;
     float center_y = (min_y + max_y) / 2.0f;
     float padding = 3.0f;
@@ -1252,51 +1238,29 @@ void label_copy(char dest[32], const char* src) {
     dest[31] = '\0';
 }
 
-void collect_label(Atelier* atelier, Band* band, Interval transformed, int edge_flags) {
-    if (band->label[0] == '\0') return;
-
-    LabelAnchor anchor = rotate_anchor_for_corner(band->label_anchor, atelier->selected_corner);
-
+bool should_show_label(LabelAnchor anchor, int edge_flags) {
     switch (anchor) {
         case LABEL_TOP_LEFT:
-            if (!(edge_flags & EDGE_TOP) && !(edge_flags & EDGE_LEFT)) return;
-            break;
+            return (edge_flags & EDGE_TOP) || (edge_flags & EDGE_LEFT);
         case LABEL_TOP_RIGHT:
-            if (!(edge_flags & EDGE_TOP) && !(edge_flags & EDGE_RIGHT)) return;
-            break;
+            return (edge_flags & EDGE_TOP) || (edge_flags & EDGE_RIGHT);
         case LABEL_BOTTOM_LEFT:
-            if (!(edge_flags & EDGE_BOTTOM) && !(edge_flags & EDGE_LEFT)) return;
-            break;
+            return (edge_flags & EDGE_BOTTOM) || (edge_flags & EDGE_LEFT);
         case LABEL_BOTTOM_RIGHT:
-            if (!(edge_flags & EDGE_BOTTOM) && !(edge_flags & EDGE_RIGHT)) return;
-            break;
+            return (edge_flags & EDGE_BOTTOM) || (edge_flags & EDGE_RIGHT);
         case LABEL_TOP_CENTER:
-            if (!(edge_flags & EDGE_TOP)) return;
-            break;
+            return (edge_flags & EDGE_TOP);
         case LABEL_BOTTOM_CENTER:
-            if (!(edge_flags & EDGE_BOTTOM)) return;
-            break;
+            return (edge_flags & EDGE_BOTTOM);
         case LABEL_MIDDLE_LEFT:
-            if (!(edge_flags & EDGE_LEFT)) return;
-            break;
+            return (edge_flags & EDGE_LEFT);
         case LABEL_MIDDLE_RIGHT:
-            if (!(edge_flags & EDGE_RIGHT)) return;
-            break;
+            return (edge_flags & EDGE_RIGHT);
         case LABEL_CENTER:
-            break;
+            return true;
+        default:
+            return true;
     }
-
-    V2 world_pos = anchor_to_position(anchor, transformed, atelier->diagonal);
-    world_pos = v2_add(world_pos, band->label_offset);
-    V2 label_pos = world_to_screen(world_pos, &atelier->camera);
-
-    LabelDraw label = {
-        band->label,
-        label_pos,
-        make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue),
-        rotate_anchor_for_corner(anchor, CORNER_TL)
-    };
-    atelier->render_ctx.labels.ptr[atelier->render_ctx.labels.length++] = label;
 }
 
 
@@ -2158,14 +2122,14 @@ void render_ui_panel(Atelier* atelier) {
     }
 }
 
-void render_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Diagonal diagonal, Camera* camera, int edge_flags) {
+void render_band_geometry(Atelier* atelier, Band* band, Interval transformed, int edge_flags) {
     // Clamp to visible range [0, 1]
     transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
     transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
 
     // Get the two diagonal endpoints for this band
-    V2 p1 = v2_lerp(diagonal.start, diagonal.end, transformed.start);
-    V2 p2 = v2_lerp(diagonal.start, diagonal.end, transformed.end);
+    V2 p1 = v2_lerp(atelier->diagonal.start, atelier->diagonal.end, transformed.start);
+    V2 p2 = v2_lerp(atelier->diagonal.start, atelier->diagonal.end, transformed.end);
 
     // Calculate bounding box
     float min_x = fminf(p1.x, p2.x);
@@ -2180,30 +2144,47 @@ void render_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, 
         case KIND_ROUNDED: {
             float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
             float extend = base_radius * (1.0f - 1.0f/sqrtf(2));
-            render_rounded_rect_geometry(gb,
+            render_rounded_rect_geometry(&atelier->render_ctx.geometry,
                                       min_x - extend, min_y - extend,
                                       (max_x - min_x) + 2 * extend,
                                       (max_y - min_y) + 2 * extend,
-                                      base_radius, sdl_color, camera, edge_flags);
+                                      base_radius, sdl_color, &atelier->camera, edge_flags);
             break;
         }
         case KIND_DOUBLE:
-            render_double_rect_geometry(gb,
+            render_double_rect_geometry(&atelier->render_ctx.geometry,
                                     min_x, min_y, max_x - min_x, max_y - min_y,
-                                    sdl_color, camera, edge_flags);
+                                    sdl_color, &atelier->camera, edge_flags);
             break;
         case KIND_WAVE:
-            render_wave_rect_geometry(gb,
+            render_wave_rect_geometry(&atelier->render_ctx.geometry,
                                   min_x, min_y, max_x - min_x, max_y - min_y,
-                                  sdl_color, camera, band->wavelength_scale,
+                                  sdl_color, &atelier->camera, band->wavelength_scale,
                                   band->wave_inverted, band->wave_half_period, edge_flags);
             break;
         case KIND_SHARP:
         default:
-            render_rounded_rect_geometry(gb,
+            render_rounded_rect_geometry(&atelier->render_ctx.geometry,
                                       min_x, min_y, max_x - min_x, max_y - min_y,
-                                      0, sdl_color, camera, edge_flags);
+                                      0, sdl_color, &atelier->camera, edge_flags);
             break;
+    }
+
+
+    // Collect label
+    LabelAnchor anchor = rotate_anchor_for_corner(band->label_anchor, atelier->selected_corner);
+    if (band->label[0] != '\0' && should_show_label(anchor, edge_flags)) {
+      V2 world_pos = anchor_to_position(anchor, min_x, max_x, min_y, max_y);
+      world_pos = v2_add(world_pos, band->label_offset);
+      V2 label_pos = world_to_screen(world_pos, &atelier->camera);
+
+      LabelDraw label = {
+          band->label,
+          label_pos,
+          make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue),
+          rotate_anchor_for_corner(anchor, CORNER_TL)
+      };
+      atelier->render_ctx.labels.ptr[atelier->render_ctx.labels.length++] = label;
     }
 }
 
@@ -2221,16 +2202,14 @@ void render_work(Atelier* atelier) {
                 Interval extended = {-2.0f, transformed.end};
                 int edge_flags = calculate_edge_flags(atelier, extended.start, extended.end);
                 if (edge_flags != 0) {
-                    render_band_geometry(&atelier->render_ctx.geometry, band, extended, atelier->diagonal, &atelier->camera, edge_flags);
-                    collect_label(atelier, band, extended, edge_flags);
+                    render_band_geometry(atelier, band, extended, edge_flags);
                 }
             }
             {
                 Interval extended = {transformed.start, 2.0f};
                 int edge_flags = calculate_edge_flags(atelier, extended.start, extended.end);
                 if (edge_flags != 0) {
-                    render_band_geometry(&atelier->render_ctx.geometry, band, extended, atelier->diagonal, &atelier->camera, edge_flags);
-                    collect_label(atelier, band, extended, edge_flags);
+                    render_band_geometry(atelier, band, extended, edge_flags);
                 }
             }
         } else {
@@ -2252,8 +2231,7 @@ void render_work(Atelier* atelier) {
                 }
 
                 // Draw band geometry
-                render_band_geometry(&atelier->render_ctx.geometry, band, transformed, atelier->diagonal, &atelier->camera, edge_flags);
-                collect_label(atelier, band, transformed, edge_flags);
+                render_band_geometry(atelier, band, transformed, edge_flags);
             }
         }
     }
