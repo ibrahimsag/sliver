@@ -42,6 +42,33 @@ float v2_dist(V2 a, V2 b) { V2 d = v2_sub(b, a); return sqrtf(d.x * d.x + d.y * 
 float v2_length(V2 v) { return sqrtf(v.x * v.x + v.y * v.y); }
 
 typedef struct {
+    char files[64][256];
+    size_t count;
+} FileList;
+
+void get_wo_files(FileList* list) {
+    list->count = 0;
+
+    DIR* dir = opendir(".");
+    if (!dir) {
+        printf("Failed to open directory\n");
+        return;
+    }
+
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL && list->count < 64) {
+        size_t len = strlen(entry->d_name);
+        if (len > 3 && strcmp(entry->d_name + len - 3, ".wo") == 0) {
+            strncpy(list->files[list->count], entry->d_name, 255);
+            list->files[list->count][255] = '\0';
+            list->count++;
+        }
+    }
+
+    closedir(dir);
+}
+
+typedef struct {
     V2 next;       // Next position to draw at
     V2 row_start;  // Start position of current row for horizontal layouts
     V2 max;        // Maximum bounds for layout
@@ -315,19 +342,74 @@ void calculate_diagonal(AppState* state) {
     }
 }
 
-// Bounce easing function - creates a bouncing effect at the end
-float ease_out_bounce(float t) {
-    if (t < 1 / 2.75f) {
-        return 7.5625f * t * t;
-    } else if (t < 2 / 2.75f) {
-        t -= 1.5f / 2.75f;
-        return 7.5625f * t * t + 0.75f;
-    } else if (t < 2.5 / 2.75f) {
-        t -= 2.25f / 2.75f;
-        return 7.5625f * t * t + 0.9375f;
-    } else {
-        t -= 2.625f / 2.75f;
-        return 7.5625f * t * t + 0.984375f;
+int calculate_edge_flags(Corner selected_corner, float start, float end) {
+    int edge_flags = EDGE_TOP | EDGE_RIGHT | EDGE_BOTTOM | EDGE_LEFT;  // Start with all visible
+
+    bool start_in_range = (start >= 0.0f && start <= 1.0f);
+    bool end_in_range = (end >= 0.0f && end <= 1.0f);
+
+    switch (selected_corner) {
+        case CORNER_TL:  // BL→TR diagonal
+            if (!start_in_range) edge_flags &= ~(EDGE_LEFT | EDGE_BOTTOM);
+            if (!end_in_range) edge_flags &= ~(EDGE_TOP | EDGE_RIGHT);
+            break;
+        case CORNER_TR:  // TL→BR diagonal
+            if (!start_in_range) edge_flags &= ~(EDGE_TOP | EDGE_LEFT);
+            if (!end_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_RIGHT);
+            break;
+        case CORNER_BR:  // TR→BL diagonal
+            if (!start_in_range) edge_flags &= ~(EDGE_TOP | EDGE_RIGHT);
+            if (!end_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_LEFT);
+            break;
+        case CORNER_BL:  // BR→TL diagonal
+            if (!start_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_RIGHT);
+            if (!end_in_range) edge_flags &= ~(EDGE_TOP | EDGE_LEFT);
+            break;
+        default:
+            break;
+    }
+    return edge_flags;
+}
+
+V2 anchor_to_position(LabelAnchor anchor, Interval transformed, Diagonal diagonal) {
+    // Clamp to visible range [0, 1]
+    transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
+    transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
+
+    // Get the two diagonal endpoints
+    V2 p1 = v2_lerp(diagonal.start, diagonal.end, transformed.start);
+    V2 p2 = v2_lerp(diagonal.start, diagonal.end, transformed.end);
+
+    // Calculate bounding box
+    float min_x = fminf(p1.x, p2.x);
+    float max_x = fmaxf(p1.x, p2.x);
+    float min_y = fminf(p1.y, p2.y);
+    float max_y = fmaxf(p1.y, p2.y);
+
+    float center_x = (min_x + max_x) / 2.0f;
+    float center_y = (min_y + max_y) / 2.0f;
+    float padding = 3.0f;
+
+    switch (anchor) {
+        case LABEL_TOP_LEFT:
+            return (V2){min_x - padding, min_y - padding};
+        case LABEL_TOP_CENTER:
+            return (V2){center_x, min_y - padding};
+        case LABEL_TOP_RIGHT:
+            return (V2){max_x + padding, min_y - padding};
+        case LABEL_MIDDLE_LEFT:
+            return (V2){min_x - padding, center_y};
+        case LABEL_CENTER:
+            return (V2){center_x, center_y};
+        case LABEL_MIDDLE_RIGHT:
+            return (V2){max_x + padding, center_y};
+        case LABEL_BOTTOM_LEFT:
+            return (V2){min_x - padding, max_y + padding};
+        case LABEL_BOTTOM_CENTER:
+            return (V2){center_x, max_y + padding};
+        case LABEL_BOTTOM_RIGHT:
+        default:
+            return (V2){max_x + padding, max_y + padding};
     }
 }
 
@@ -358,6 +440,21 @@ void string_append(StringBuilder* sb, const char* format, ...) {
     }
 }
 
+// Layout functions
+void advance_horizontal(Layout* layout, float width) {
+    layout->next.x += width;
+    if (layout->next.x > layout->max.x) {
+        layout->next.x = layout->max.x;
+    }
+}
+
+void advance_vertical(Layout* layout, float height) {
+    layout->next.y += height;
+    layout->next.x = layout->row_start.x;  // Reset to start of row
+    if (layout->next.y > layout->max.y) {
+        layout->next.y = layout->max.y;
+    }
+}
 
 // Geometry buffer functions
 void geometry_buffer_init(GeometryBuffer* gb, size_t initial_vertex_capacity, size_t initial_index_capacity) {
@@ -548,21 +645,6 @@ void render_text(AppState* state, const char* text, V2 position, SDL_Color color
         SDL_DestroyTexture(texture);
     }
     SDL_FreeSurface(surface);
-}
-
-void advance_horizontal(Layout* layout, float width) {
-    layout->next.x += width;
-    if (layout->next.x > layout->max.x) {
-        layout->next.x = layout->max.x;
-    }
-}
-
-void advance_vertical(Layout* layout, float height) {
-    layout->next.y += height;
-    layout->next.x = layout->row_start.x;  // Reset to start of row
-    if (layout->next.y > layout->max.y) {
-        layout->next.y = layout->max.y;
-    }
 }
 
 // Render 3x3 anchor buttons for label position selection
@@ -1078,6 +1160,21 @@ void label_copy(char dest[32], const char* src) {
     dest[31] = '\0';
 }
 
+void collect_label(AppState* state, Band* band, Interval transformed) {
+    if (band->label[0] == '\0') return;
+
+    V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
+    world_pos = v2_add(world_pos, band->label_offset);
+    V2 label_pos = world_to_screen(world_pos, &state->camera);
+
+    LabelDraw label = {
+        band->label,
+        label_pos,
+        make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue)
+    };
+    state->render_ctx.labels.ptr[state->render_ctx.labels.length++] = label;
+}
+
 
 // BandArray management functions
 void band_array_init(BandArray* arr, size_t initial_capacity) {
@@ -1360,66 +1457,43 @@ void work_update_hash(Work* work) {
     work->saved_hash = work_compute_hash(work);
 }
 
-typedef struct {
-    char files[64][256];
-    size_t count;
-} FileList;
+void work_save(Work* work, const char* filename, StringBuilder* sb) {
+    string_builder_clear(sb);
 
-void get_wo_files(FileList* list) {
-    list->count = 0;
+    strncpy(work->filename, filename, 255);
+    work->filename[255] = '\0';
 
-    DIR* dir = opendir(".");
-    if (!dir) {
-        printf("Failed to open directory\n");
-        return;
+    string_append(sb, "WORK SLIVER %04d\n", WORK_FILE_VERSION);
+
+    for (size_t i = 0; i < work->bands.length; i++) {
+        Band* band = &work->bands.ptr[i];
+        string_append(sb, "{\n");
+        string_append(sb, "  type: band\n");
+        string_append(sb, "  interval: %f %f\n", band->interval.start, band->interval.end);
+        string_append(sb, "  stride: %f\n", band->stride);
+        string_append(sb, "  repeat: %d\n", band->repeat);
+        string_append(sb, "  kind: %s\n", band_kind_to_string(band->kind));
+        string_append(sb, "  line_kind: %s\n", line_kind_to_string(band->line_kind));
+        string_append(sb, "  color: %f %f %f\n", band->color.hue, band->color.lightness, band->color.chroma);
+        string_append(sb, "  label: \"%s\"\n", band->label);
+        string_append(sb, "  wavelength_scale: %d\n", band->wavelength_scale);
+        string_append(sb, "  wave_inverted: %s\n", band->wave_inverted ? "true" : "false");
+        string_append(sb, "  wave_half_period: %s\n", band->wave_half_period ? "true" : "false");
+        string_append(sb, "  follow_previous: %s\n", band->follow_previous ? "true" : "false");
+        string_append(sb, "  label_anchor: %d\n", band->label_anchor);
+        string_append(sb, "  label_offset: %f %f\n", band->label_offset.x, band->label_offset.y);
+        string_append(sb, "}\n");
     }
 
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != NULL && list->count < 64) {
-        size_t len = strlen(entry->d_name);
-        if (len > 3 && strcmp(entry->d_name + len - 3, ".wo") == 0) {
-            strncpy(list->files[list->count], entry->d_name, 255);
-            list->files[list->count][255] = '\0';
-            list->count++;
-        }
-    }
-
-    closedir(dir);
-}
-
-void work_save(Work* work, const char* filename) {
     FILE* file = fopen(filename, "w");
     if (!file) {
         printf("Failed to open file for writing: %s\n", filename);
         return;
     }
 
-    strncpy(work->filename, filename, 255);
-    work->filename[255] = '\0';
-
-    fprintf(file, "WORK SLIVER %04d\n", WORK_FILE_VERSION);
-
-    for (size_t i = 0; i < work->bands.length; i++) {
-        Band* band = &work->bands.ptr[i];
-        fprintf(file, "{\n");
-        fprintf(file, "  type: band\n");
-        fprintf(file, "  interval: %f %f\n", band->interval.start, band->interval.end);
-        fprintf(file, "  stride: %f\n", band->stride);
-        fprintf(file, "  repeat: %d\n", band->repeat);
-        fprintf(file, "  kind: %s\n", band_kind_to_string(band->kind));
-        fprintf(file, "  line_kind: %s\n", line_kind_to_string(band->line_kind));
-        fprintf(file, "  color: %f %f %f\n", band->color.hue, band->color.lightness, band->color.chroma);
-        fprintf(file, "  label: \"%s\"\n", band->label);
-        fprintf(file, "  wavelength_scale: %d\n", band->wavelength_scale);
-        fprintf(file, "  wave_inverted: %s\n", band->wave_inverted ? "true" : "false");
-        fprintf(file, "  wave_half_period: %s\n", band->wave_half_period ? "true" : "false");
-        fprintf(file, "  follow_previous: %s\n", band->follow_previous ? "true" : "false");
-        fprintf(file, "  label_anchor: %d\n", band->label_anchor);
-        fprintf(file, "  label_offset: %f %f\n", band->label_offset.x, band->label_offset.y);
-        fprintf(file, "}\n");
-    }
-
+    fwrite(sb->ptr, 1, sb->len, file);
     fclose(file);
+
     work_update_hash(work);
     printf("Work saved to %s\n", filename);
 }
@@ -1639,7 +1713,7 @@ Layout render_shelf(AppState* state, Layout layout) {
 
         V2 save_button_size = {80, 25};
         if (render_button(state, "Save", layout.next, save_button_size, INPUT_NONE)) {
-            work_save(state->work, state->ui_state.suggested_filename);
+            work_save(state->work, state->ui_state.suggested_filename, &state->string_builder);
             state->ui_state.step = UI_LENS;
         }
         advance_horizontal(&layout, save_button_size.x + 10);
@@ -1955,77 +2029,6 @@ void render_ui_panel(AppState* state) {
     }
 }
 
-int calculate_edge_flags(Corner selected_corner, float start, float end) {
-    int edge_flags = EDGE_TOP | EDGE_RIGHT | EDGE_BOTTOM | EDGE_LEFT;  // Start with all visible
-
-    bool start_in_range = (start >= 0.0f && start <= 1.0f);
-    bool end_in_range = (end >= 0.0f && end <= 1.0f);
-
-    switch (selected_corner) {
-        case CORNER_TL:  // BL→TR diagonal
-            if (!start_in_range) edge_flags &= ~(EDGE_LEFT | EDGE_BOTTOM);
-            if (!end_in_range) edge_flags &= ~(EDGE_TOP | EDGE_RIGHT);
-            break;
-        case CORNER_TR:  // TL→BR diagonal
-            if (!start_in_range) edge_flags &= ~(EDGE_TOP | EDGE_LEFT);
-            if (!end_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_RIGHT);
-            break;
-        case CORNER_BR:  // TR→BL diagonal
-            if (!start_in_range) edge_flags &= ~(EDGE_TOP | EDGE_RIGHT);
-            if (!end_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_LEFT);
-            break;
-        case CORNER_BL:  // BR→TL diagonal
-            if (!start_in_range) edge_flags &= ~(EDGE_BOTTOM | EDGE_RIGHT);
-            if (!end_in_range) edge_flags &= ~(EDGE_TOP | EDGE_LEFT);
-            break;
-        default:
-            break;
-    }
-    return edge_flags;
-}
-
-V2 anchor_to_position(LabelAnchor anchor, Interval transformed, Diagonal diagonal) {
-    // Clamp to visible range [0, 1]
-    transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
-    transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
-
-    // Get the two diagonal endpoints
-    V2 p1 = v2_lerp(diagonal.start, diagonal.end, transformed.start);
-    V2 p2 = v2_lerp(diagonal.start, diagonal.end, transformed.end);
-
-    // Calculate bounding box
-    float min_x = fminf(p1.x, p2.x);
-    float max_x = fmaxf(p1.x, p2.x);
-    float min_y = fminf(p1.y, p2.y);
-    float max_y = fmaxf(p1.y, p2.y);
-
-    float center_x = (min_x + max_x) / 2.0f;
-    float center_y = (min_y + max_y) / 2.0f;
-    float padding = 3.0f;
-
-    switch (anchor) {
-        case LABEL_TOP_LEFT:
-            return (V2){min_x - padding, min_y - padding};
-        case LABEL_TOP_CENTER:
-            return (V2){center_x, min_y - padding};
-        case LABEL_TOP_RIGHT:
-            return (V2){max_x + padding, min_y - padding};
-        case LABEL_MIDDLE_LEFT:
-            return (V2){min_x - padding, center_y};
-        case LABEL_CENTER:
-            return (V2){center_x, center_y};
-        case LABEL_MIDDLE_RIGHT:
-            return (V2){max_x + padding, center_y};
-        case LABEL_BOTTOM_LEFT:
-            return (V2){min_x - padding, max_y + padding};
-        case LABEL_BOTTOM_CENTER:
-            return (V2){center_x, max_y + padding};
-        case LABEL_BOTTOM_RIGHT:
-        default:
-            return (V2){max_x + padding, max_y + padding};
-    }
-}
-
 void render_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Diagonal diagonal, Camera* camera, int edge_flags) {
     // Clamp to visible range [0, 1]
     transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
@@ -2073,21 +2076,6 @@ void render_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, 
                                       0, sdl_color, camera, edge_flags);
             break;
     }
-}
-
-void collect_label(AppState* state, Band* band, Interval transformed) {
-    if (band->label[0] == '\0') return;
-
-    V2 world_pos = anchor_to_position(band->label_anchor, transformed, state->diagonal);
-    world_pos = v2_add(world_pos, band->label_offset);
-    V2 label_pos = world_to_screen(world_pos, &state->camera);
-
-    LabelDraw label = {
-        band->label,
-        label_pos,
-        make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue)
-    };
-    state->render_ctx.labels.ptr[state->render_ctx.labels.length++] = label;
 }
 
 void render_work(AppState* state) {
