@@ -213,6 +213,7 @@ typedef struct {
     const char* label;
     V2 position;  // Screen position
     SDL_Color color;
+    LabelAnchor anchor;  // Anchor for text alignment
 } LabelDraw;
 
 typedef struct {
@@ -397,8 +398,7 @@ LabelAnchor rotate_anchor_for_corner(LabelAnchor anchor, Corner corner) {
     }
 }
 
-V2 anchor_to_position(LabelAnchor anchor, Interval transformed, Diagonal diagonal, Corner corner) {
-    anchor = rotate_anchor_for_corner(anchor, corner);
+V2 anchor_to_position(LabelAnchor anchor, Interval transformed, Diagonal diagonal) {
     // Clamp to visible range [0, 1]
     transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
     transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
@@ -652,6 +652,27 @@ void render_context_free(RenderContext* ctx) {
     free(ctx->labels.ptr);
 }
 
+V2 align_text_position(V2 position, int width, int height, LabelAnchor anchor) {
+    int row = anchor / 3;
+    int col = anchor % 3;
+
+    float x_offset = 0, y_offset = 0;
+
+    switch (col) {
+        case 0: x_offset = 0; break;
+        case 1: x_offset = -width / 2.0f; break;
+        case 2: x_offset = -width; break;
+    }
+
+    switch (row) {
+        case 0: y_offset = 0; break;
+        case 1: y_offset = -height / 2.0f; break;
+        case 2: y_offset = -height; break;
+    }
+
+    return (V2){position.x + x_offset, position.y + y_offset};
+}
+
 void render_text(Atelier* atelier, const char* text, V2 position, SDL_Color color) {
     if (!atelier->font || !text) return;
 
@@ -667,6 +688,31 @@ void render_text(Atelier* atelier, const char* text, V2 position, SDL_Color colo
             (int)position.y,
             surface->w / 2,  // Half width for supersampling
             surface->h / 2   // Half height for supersampling
+        };
+        SDL_RenderCopy(atelier->renderer, texture, NULL, &dest);
+        SDL_DestroyTexture(texture);
+    }
+    SDL_FreeSurface(surface);
+}
+
+void render_text_aligned(Atelier* atelier, const char* text, V2 position, SDL_Color color, LabelAnchor anchor) {
+    if (!atelier->font || !text) return;
+
+    // Render at 2x size for supersampling
+    SDL_Surface* surface = TTF_RenderText_Blended(atelier->font, text, color);
+    if (!surface) return;
+
+    int width = surface->w / 2;
+    int height = surface->h / 2;
+    V2 aligned_pos = align_text_position(position, width, height, anchor);
+
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(atelier->renderer, surface);
+    if (texture) {
+        SDL_Rect dest = {
+            (int)aligned_pos.x,
+            (int)aligned_pos.y,
+            width,
+            height
         };
         SDL_RenderCopy(atelier->renderer, texture, NULL, &dest);
         SDL_DestroyTexture(texture);
@@ -1209,7 +1255,7 @@ void label_copy(char dest[32], const char* src) {
 void collect_label(Atelier* atelier, Band* band, Interval transformed, int edge_flags) {
     if (band->label[0] == '\0') return;
 
-    LabelAnchor anchor = band->label_anchor;
+    LabelAnchor anchor = rotate_anchor_for_corner(band->label_anchor, atelier->selected_corner);
 
     switch (anchor) {
         case LABEL_TOP_LEFT:
@@ -1240,14 +1286,15 @@ void collect_label(Atelier* atelier, Band* band, Interval transformed, int edge_
             break;
     }
 
-    V2 world_pos = anchor_to_position(band->label_anchor, transformed, atelier->diagonal, atelier->selected_corner);
+    V2 world_pos = anchor_to_position(anchor, transformed, atelier->diagonal);
     world_pos = v2_add(world_pos, band->label_offset);
     V2 label_pos = world_to_screen(world_pos, &atelier->camera);
 
     LabelDraw label = {
         band->label,
         label_pos,
-        make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue)
+        make_color_oklch(band->color.lightness, band->color.chroma, band->color.hue),
+        rotate_anchor_for_corner(anchor, CORNER_TL)
     };
     atelier->render_ctx.labels.ptr[atelier->render_ctx.labels.length++] = label;
 }
@@ -2281,7 +2328,7 @@ void render_viewport(Atelier* atelier) {
     // Draw collected labels
     for (size_t i = 0; i < atelier->render_ctx.labels.length; i++) {
         LabelDraw* label = &atelier->render_ctx.labels.ptr[i];
-        render_text(atelier, label->label, label->position, label->color);
+        render_text_aligned(atelier, label->label, label->position, label->color, label->anchor);
     }
 
     // Clear clipping rect to draw UI
