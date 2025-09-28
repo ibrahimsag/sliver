@@ -945,7 +945,7 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
 }
 
 // Draw wave rectangle with geometry buffer
-void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period, int edge_flags) {
+void render_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period, int edge_flags) {
     float thickness = 2.0f;
     float amplitude = thickness * 2.0f;  // Amplitude is 3x thickness
     float wavelength = thickness * 8.0f * (1 << wavelength_scale);  // Wavelength is 8x thickness * 2^scale
@@ -974,7 +974,7 @@ void draw_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, floa
 }
 
 // Draw double-line rectangle with geometry buffer
-void draw_double_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int edge_flags) {
+void render_double_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int edge_flags) {
     float thickness = 2.0f;
     float gap = thickness * 2.0f;  // Gap between lines equals thickness
 
@@ -1011,7 +1011,7 @@ void draw_double_rect_geometry(GeometryBuffer* gb, float x, float y, float w, fl
 }
 
 // Draw rounded rectangle with geometry buffer
-void draw_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, float radius, SDL_Color color, Camera* camera, int edge_flags) {
+void render_rounded_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, float radius, SDL_Color color, Camera* camera, int edge_flags) {
     if (radius <= 0) {
         // Draw regular rectangle with thick lines
         V2 tl = world_to_screen((V2){x, y}, camera);
@@ -1560,7 +1560,7 @@ bool work_load(Work* work, const char* filename) {
 }
 
 // Draw Work UI layer - manages Work objects (load, store, init)
-Layout draw_work_ui(AppState* state, Layout layout) {
+Layout render_work_ui(AppState* state, Layout layout) {
     V2 button_size = {80, 25};
 
     // Work navigation and management buttons
@@ -1652,7 +1652,7 @@ Layout draw_work_ui(AppState* state, Layout layout) {
 }
 
 // Draw Shelf layer - file browser for load/save
-Layout draw_shelf(AppState* state, Layout layout) {
+Layout render_shelf(AppState* state, Layout layout) {
     V2 button_size = {300, 30};
     SDL_Color white = {255, 255, 255, 255};
 
@@ -1715,7 +1715,7 @@ Layout draw_shelf(AppState* state, Layout layout) {
     return layout;
 }
 
-Layout draw_lens(AppState* state, Layout layout) {
+Layout render_lens(AppState* state, Layout layout) {
     V2 button_size = {80, 25};
 
     // Add band buttons
@@ -1967,7 +1967,7 @@ void render_ui_panel(AppState* state) {
     };
 
     // Layer 1: Work management
-    layout = draw_work_ui(state, layout);
+    layout = render_work_ui(state, layout);
     layout.row_start = layout.next;
 
     // Visual separator
@@ -1977,9 +1977,9 @@ void render_ui_panel(AppState* state) {
 
     // Layer 2: Switch between SHELF (file list) and LENS (band editing)
     if (state->ui_state.step == UI_SHELF) {
-        layout = draw_shelf(state, layout);
+        layout = render_shelf(state, layout);
     } else {
-        layout = draw_lens(state, layout);
+        layout = render_lens(state, layout);
     }
 }
 
@@ -2054,7 +2054,7 @@ V2 anchor_to_position(LabelAnchor anchor, Interval transformed, Diagonal diagona
     }
 }
 
-void draw_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Diagonal diagonal, Camera* camera, int edge_flags) {
+void render_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Diagonal diagonal, Camera* camera, int edge_flags) {
     // Clamp to visible range [0, 1]
     transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
     transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
@@ -2076,7 +2076,7 @@ void draw_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Di
         case KIND_ROUNDED: {
             float base_radius = fminf(25.0f, fminf(max_x - min_x, max_y - min_y) * 0.2f);
             float extend = base_radius * (1.0f - 1.0f/sqrtf(2));
-            draw_rounded_rect_geometry(gb,
+            render_rounded_rect_geometry(gb,
                                       min_x - extend, min_y - extend,
                                       (max_x - min_x) + 2 * extend,
                                       (max_y - min_y) + 2 * extend,
@@ -2084,19 +2084,19 @@ void draw_band_geometry(GeometryBuffer* gb, Band* band, Interval transformed, Di
             break;
         }
         case KIND_DOUBLE:
-            draw_double_rect_geometry(gb,
+            render_double_rect_geometry(gb,
                                     min_x, min_y, max_x - min_x, max_y - min_y,
                                     sdl_color, camera, edge_flags);
             break;
         case KIND_WAVE:
-            draw_wave_rect_geometry(gb,
+            render_wave_rect_geometry(gb,
                                   min_x, min_y, max_x - min_x, max_y - min_y,
                                   sdl_color, camera, band->wavelength_scale,
                                   band->wave_inverted, band->wave_half_period, edge_flags);
             break;
         case KIND_SHARP:
         default:
-            draw_rounded_rect_geometry(gb,
+            render_rounded_rect_geometry(gb,
                                       min_x, min_y, max_x - min_x, max_y - min_y,
                                       0, sdl_color, camera, edge_flags);
             break;
@@ -2133,7 +2133,7 @@ void render_work(AppState* state) {
                 Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
                 int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
                 if (edge_flags != 0) {
-                    draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
+                    render_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
                     collect_label(state, band, transformed);
                 }
             }
@@ -2142,7 +2142,7 @@ void render_work(AppState* state) {
                 Interval transformed = sliver_transform_interval(interval, &state->sliver_camera);
                 int edge_flags = calculate_edge_flags(state->selected_corner, transformed.start, transformed.end);
                 if (edge_flags != 0) {
-                    draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
+                    render_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
                     collect_label(state, band, transformed);
                 }
             }
@@ -2165,7 +2165,7 @@ void render_work(AppState* state) {
                 }
 
                 // Draw band geometry
-                draw_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
+                render_band_geometry(&state->render_ctx.geometry, band, transformed, state->diagonal, &state->camera, edge_flags);
                 collect_label(state, band, transformed);
             }
         }
