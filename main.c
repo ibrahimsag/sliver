@@ -1038,7 +1038,7 @@ void render_text_input_field(Atelier* atelier, char* text, size_t max_len, V2 po
     }
 }
 
-// Draw a wavy line between two points
+// Draw a wavy line between two points using connected quads
 void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thickness, float amplitude, float wavelength, SDL_Color color, bool inverted, bool half_period) {
     V2 dir = v2_sub(p2, p1);
     float length = v2_length(dir);
@@ -1046,6 +1046,7 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
 
     dir = v2_scale(dir, 1.0f / length);
     V2 perp = {-dir.y, dir.x};  // Perpendicular direction
+    V2 thickness_perp = v2_scale(perp, thickness * 0.5f);
 
     // Calculate number of complete wavelengths that fit
     float num_waves = length / wavelength;
@@ -1068,35 +1069,65 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
     int segments = (int)(length / 2.0f);  // One segment every 2 pixels
     if (segments < 16) segments = 16;  // Minimum 16 segments for smoothness
 
+    // Ensure we have capacity for all vertices and indices
+    int vertex_count = (segments + 1) * 2;  // Two vertices per point (top and bottom)
+    int index_count = segments * 6;  // Two triangles per segment
+    geometry_buffer_ensure_capacity(gb, vertex_count, index_count);
+
+    size_t base_vertex = gb->vertex_count;
+    float phase_offset = !inverted ? M_PI : 0.0f;  // Inverted logic - false means π offset
+
+    // Generate all vertices for the wave strip
+    for (int i = 0; i <= segments; i++) {
+        float t = (float)i / segments;
+
+        // Calculate position along the line
+        V2 base = v2_lerp(p1, p2, t);
+
+        // Calculate wave offset
+        float phase = (t * length / adjusted_wavelength) * 2.0f * M_PI + phase_offset;
+        float offset = sinf(phase) * amplitude;
+
+        // Apply wave offset
+        V2 wave_center = v2_add(base, v2_scale(perp, offset));
+
+        // Add top and bottom vertices
+        V2 top = v2_add(wave_center, thickness_perp);
+        V2 bottom = v2_sub(wave_center, thickness_perp);
+
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {bottom.x, bottom.y},
+            .color = {color.r, color.g, color.b, color.a},
+            .tex_coord = {0, 0}
+        };
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {top.x, top.y},
+            .color = {color.r, color.g, color.b, color.a},
+            .tex_coord = {0, 0}
+        };
+    }
+
+    // Generate indices for connected triangles
     for (int i = 0; i < segments; i++) {
-        float t1 = (float)i / segments;
-        float t2 = (float)(i + 1) / segments;
+        size_t v = base_vertex + i * 2;
 
-        // Calculate positions along the line
-        V2 base1 = v2_lerp(p1, p2, t1);
-        V2 base2 = v2_lerp(p1, p2, t2);
+        // First triangle: bottom-left, top-left, top-right
+        gb->indices[gb->index_count++] = v + 0;
+        gb->indices[gb->index_count++] = v + 1;
+        gb->indices[gb->index_count++] = v + 3;
 
-        // Calculate wave offsets using adjusted wavelength with optional π phase offset
-        float phase_offset = !inverted ? M_PI : 0.0f;  // Inverted logic - false means π offset
-        float phase1 = (t1 * length / adjusted_wavelength) * 2.0f * M_PI + phase_offset;
-        float phase2 = (t2 * length / adjusted_wavelength) * 2.0f * M_PI + phase_offset;
-        float offset1 = sinf(phase1) * amplitude;
-        float offset2 = sinf(phase2) * amplitude;
-
-        // Apply wave offsets
-        V2 wave1 = v2_add(base1, v2_scale(perp, offset1));
-        V2 wave2 = v2_add(base2, v2_scale(perp, offset2));
-
-        // Draw line segment
-        geometry_buffer_add_line(gb, wave1, wave2, thickness, color);
+        // Second triangle: bottom-left, top-right, bottom-right
+        gb->indices[gb->index_count++] = v + 0;
+        gb->indices[gb->index_count++] = v + 3;
+        gb->indices[gb->index_count++] = v + 2;
     }
 }
 
 // Draw wave rectangle with geometry buffer
 void render_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period, int edge_flags) {
-    float thickness = 2.0f;
-    float amplitude = thickness * 2.0f;  // Amplitude is 3x thickness
-    float wavelength = thickness * 8.0f * (1 << wavelength_scale);  // Wavelength is 8x thickness * 2^scale
+    float thickness = 4.0f;
+    float amplitude = thickness;  // Amplitude is 3x thickness
+    float wavelength = thickness * 4.0f * (1 << wavelength_scale);  // Wavelength is 8x thickness * 2^scale
 
     // Convert world coordinates to screen
     V2 tl = world_to_screen((V2){x, y}, camera);
