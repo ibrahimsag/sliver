@@ -1886,7 +1886,7 @@ Layout render_lens(Atelier* atelier, Layout layout) {
     if (render_button(atelier, atelier->one_side ? "1" : "2", layout.next, nav_button_size, INPUT_NONE)) {
         atelier->one_side = !atelier->one_side;
     }
-    advance_vertical(&layout, 25);
+    advance_vertical(&layout, 35);
 
     // Render each band
     char buffer[256];
@@ -1956,7 +1956,7 @@ Layout render_lens(Atelier* atelier, Layout layout) {
         render_text(atelier, "  End:", layout.next, band_color);
         input_pos = (V2){layout.next.x + 100, layout.next.y};
         render_numeric_input_field_full(atelier, &band->interval.end, input_pos, input_size, false, drag_scale);
-        advance_vertical(&layout, 20);
+        advance_vertical(&layout, 30);
 
         // Hue input field
         render_text(atelier, "Color:", layout.next, band_color);
@@ -1993,6 +1993,37 @@ Layout render_lens(Atelier* atelier, Layout layout) {
             while (band->color.C > 1.0f) band->color.C = 1.0f;
         }
         advance_vertical(&layout, 25);
+
+        advance_horizontal(&layout, 100);
+
+
+        // Label offset inputs next to anchor grid
+        V2 offset_input_size = {60, 20};
+        V2 x_input_pos = {layout.next.x, layout.next.y + 12};
+        render_numeric_input_field_full(atelier, &band->label_offset.x, x_input_pos, offset_input_size, false, 0.5f);
+        advance_horizontal(&layout, offset_input_size.x+5);
+
+        V2 y_input_pos = {layout.next.x, layout.next.y + 12};
+        render_numeric_input_field_full(atelier, &band->label_offset.y, y_input_pos, offset_input_size, false, 0.5f);
+        advance_horizontal(&layout, offset_input_size.x+5);
+
+        // Label position control - 3x3 anchor grid with offset inputs
+        int selected_pos = render_anchor_buttons(atelier, layout.next, 45, band->label_anchor);
+        if (selected_pos >= 0) {
+            band->label_anchor = selected_pos;
+        }
+
+        advance_horizontal(&layout, 50);
+
+        V2 toggle_pos = {layout.next.x, layout.next.y + 12};
+        V2 toggle_size = {25, 25};
+        if (render_button(atelier, band->label_fixed ? "O" : "F", toggle_pos, toggle_size, INPUT_NONE)) {
+            band->label_fixed = !band->label_fixed;
+        }
+        advance_horizontal(&layout, 30);
+
+        advance_vertical(&layout, 50);
+
 
         // Add band kind toggle button (CLOSED/OPEN)
         const char* band_kind_name = (band->kind == BAND_OPEN) ? "><" : "<>";
@@ -2063,30 +2094,7 @@ Layout render_lens(Atelier* atelier, Layout layout) {
             }
         }
 
-        advance_vertical(&layout, 25);
-
-        // Label position control - 3x3 anchor grid with offset inputs
-        int selected_pos = render_anchor_buttons(atelier, layout.next, 45, band->label_anchor);
-        if (selected_pos >= 0) {
-            band->label_anchor = selected_pos;
-        }
-
-        // Label offset inputs next to anchor grid
-        V2 offset_input_size = {60, 20};
-        V2 x_input_pos = {layout.next.x + 50, layout.next.y + 5};
-        V2 y_input_pos = {layout.next.x + 50, layout.next.y + 25};
-
-        render_numeric_input_field_full(atelier, &band->label_offset.x, x_input_pos, offset_input_size, false, 0.5f);
-        render_numeric_input_field_full(atelier, &band->label_offset.y, y_input_pos, offset_input_size, false, 0.5f);
-
-        V2 toggle_pos = {layout.next.x + 115, layout.next.y + 12};
-        V2 toggle_size = {25, 25};
-        if (render_button(atelier, band->label_fixed ? "O" : "F", toggle_pos, toggle_size, INPUT_NONE)) {
-            band->label_fixed = !band->label_fixed;
-        }
-
-        advance_vertical(&layout, 50);
-
+        advance_vertical(&layout, 30);
         advance_vertical(&layout, 10);  // Space between bands
     }
 
