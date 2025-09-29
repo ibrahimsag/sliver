@@ -509,9 +509,12 @@ void geometry_buffer_ensure_capacity(GeometryBuffer* gb, size_t vertex_count, si
     }
 }
 
-// Add a thick line as a quad to the geometry buffer
+// Add a thick line with edge feathering for anti-aliasing
 void geometry_buffer_add_line(GeometryBuffer* gb, V2 p1, V2 p2, float thickness, SDL_Color color) {
-    geometry_buffer_ensure_capacity(gb, 4, 6);
+    // Add feathering for anti-aliasing to match arcs
+    float feather_width = 1.0f;
+
+    geometry_buffer_ensure_capacity(gb, 8, 18);  // 8 vertices, 18 indices (6 triangles)
 
     // Calculate perpendicular direction
     V2 dir = v2_sub(p2, p1);
@@ -519,92 +522,176 @@ void geometry_buffer_add_line(GeometryBuffer* gb, V2 p1, V2 p2, float thickness,
     if (len == 0) return;
 
     dir = v2_scale(dir, 1.0f / len);
-    V2 perp = {-dir.y * thickness * 0.5f, dir.x * thickness * 0.5f};
+    V2 inner_perp = {-dir.y * thickness * 0.5f, dir.x * thickness * 0.5f};
+    V2 outer_perp = {-dir.y * (thickness * 0.5f + feather_width), dir.x * (thickness * 0.5f + feather_width)};
 
-    // Add vertices
+    // Add vertices with feathering
     size_t base_vertex = gb->vertex_count;
 
+    // p1 end - outer bottom (transparent)
     gb->vertices[gb->vertex_count++] = (SDL_Vertex){
-        .position = {p1.x - perp.x, p1.y - perp.y},
+        .position = {p1.x - outer_perp.x, p1.y - outer_perp.y},
+        .color = {color.r, color.g, color.b, 0},
+        .tex_coord = {0, 0}
+    };
+    // p1 end - inner bottom (opaque)
+    gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+        .position = {p1.x - inner_perp.x, p1.y - inner_perp.y},
         .color = {color.r, color.g, color.b, color.a},
         .tex_coord = {0, 0}
     };
+    // p1 end - inner top (opaque)
     gb->vertices[gb->vertex_count++] = (SDL_Vertex){
-        .position = {p1.x + perp.x, p1.y + perp.y},
+        .position = {p1.x + inner_perp.x, p1.y + inner_perp.y},
         .color = {color.r, color.g, color.b, color.a},
         .tex_coord = {0, 0}
     };
+    // p1 end - outer top (transparent)
     gb->vertices[gb->vertex_count++] = (SDL_Vertex){
-        .position = {p2.x + perp.x, p2.y + perp.y},
-        .color = {color.r, color.g, color.b, color.a},
-        .tex_coord = {0, 0}
-    };
-    gb->vertices[gb->vertex_count++] = (SDL_Vertex){
-        .position = {p2.x - perp.x, p2.y - perp.y},
-        .color = {color.r, color.g, color.b, color.a},
+        .position = {p1.x + outer_perp.x, p1.y + outer_perp.y},
+        .color = {color.r, color.g, color.b, 0},
         .tex_coord = {0, 0}
     };
 
-    // Add indices for two triangles
-    gb->indices[gb->index_count++] = base_vertex + 0;
-    gb->indices[gb->index_count++] = base_vertex + 1;
-    gb->indices[gb->index_count++] = base_vertex + 2;
+    // p2 end - outer bottom (transparent)
+    gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+        .position = {p2.x - outer_perp.x, p2.y - outer_perp.y},
+        .color = {color.r, color.g, color.b, 0},
+        .tex_coord = {0, 0}
+    };
+    // p2 end - inner bottom (opaque)
+    gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+        .position = {p2.x - inner_perp.x, p2.y - inner_perp.y},
+        .color = {color.r, color.g, color.b, color.a},
+        .tex_coord = {0, 0}
+    };
+    // p2 end - inner top (opaque)
+    gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+        .position = {p2.x + inner_perp.x, p2.y + inner_perp.y},
+        .color = {color.r, color.g, color.b, color.a},
+        .tex_coord = {0, 0}
+    };
+    // p2 end - outer top (transparent)
+    gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+        .position = {p2.x + outer_perp.x, p2.y + outer_perp.y},
+        .color = {color.r, color.g, color.b, 0},
+        .tex_coord = {0, 0}
+    };
 
-    gb->indices[gb->index_count++] = base_vertex + 0;
-    gb->indices[gb->index_count++] = base_vertex + 2;
-    gb->indices[gb->index_count++] = base_vertex + 3;
+    // Add indices for triangles with feathering
+    // Bottom feather strip
+    gb->indices[gb->index_count++] = base_vertex + 0;  // p1 outer bottom
+    gb->indices[gb->index_count++] = base_vertex + 1;  // p1 inner bottom
+    gb->indices[gb->index_count++] = base_vertex + 5;  // p2 inner bottom
+
+    gb->indices[gb->index_count++] = base_vertex + 0;  // p1 outer bottom
+    gb->indices[gb->index_count++] = base_vertex + 5;  // p2 inner bottom
+    gb->indices[gb->index_count++] = base_vertex + 4;  // p2 outer bottom
+
+    // Main center strip
+    gb->indices[gb->index_count++] = base_vertex + 1;  // p1 inner bottom
+    gb->indices[gb->index_count++] = base_vertex + 2;  // p1 inner top
+    gb->indices[gb->index_count++] = base_vertex + 6;  // p2 inner top
+
+    gb->indices[gb->index_count++] = base_vertex + 1;  // p1 inner bottom
+    gb->indices[gb->index_count++] = base_vertex + 6;  // p2 inner top
+    gb->indices[gb->index_count++] = base_vertex + 5;  // p2 inner bottom
+
+    // Top feather strip
+    gb->indices[gb->index_count++] = base_vertex + 2;  // p1 inner top
+    gb->indices[gb->index_count++] = base_vertex + 3;  // p1 outer top
+    gb->indices[gb->index_count++] = base_vertex + 7;  // p2 outer top
+
+    gb->indices[gb->index_count++] = base_vertex + 2;  // p1 inner top
+    gb->indices[gb->index_count++] = base_vertex + 7;  // p2 outer top
+    gb->indices[gb->index_count++] = base_vertex + 6;  // p2 inner top
 }
 
-// Add an arc using multiple quads
+// Add an arc using connected quads with edge feathering for anti-aliasing
 void geometry_buffer_add_arc(GeometryBuffer* gb, V2 center, float radius, float start_angle, float end_angle, float thickness, SDL_Color color, int segments) {
     if (segments < 2) segments = 2;
 
+    // Add feathering for anti-aliasing
+    float feather_width = 1.0f;  // 1 pixel feather
+
+    // Ensure we have capacity for all vertices and indices
+    int vertex_count = (segments + 1) * 4;  // Four vertices per angle point (inner feather, inner, outer, outer feather)
+    int index_count = segments * 18;  // Six triangles per segment (2 main + 4 feathered edges)
+    geometry_buffer_ensure_capacity(gb, vertex_count, index_count);
+
     float angle_step = (end_angle - start_angle) / segments;
+    float inner_feather_radius = radius - thickness * 0.5f - feather_width;
+    float inner_radius = radius - thickness * 0.5f;
+    float outer_radius = radius + thickness * 0.5f;
+    float outer_feather_radius = radius + thickness * 0.5f + feather_width;
 
+    size_t base_vertex = gb->vertex_count;
+
+    // Generate all vertices for the arc strip with feathering
+    for (int i = 0; i <= segments; i++) {
+        float angle = start_angle + i * angle_step;
+        float cos_a = cosf(angle);
+        float sin_a = sinf(angle);
+
+        // Inner feather vertex (transparent)
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {center.x + inner_feather_radius * cos_a, center.y + inner_feather_radius * sin_a},
+            .color = {color.r, color.g, color.b, 0},  // Transparent
+            .tex_coord = {0, 0}
+        };
+
+        // Inner vertex (opaque)
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {center.x + inner_radius * cos_a, center.y + inner_radius * sin_a},
+            .color = {color.r, color.g, color.b, color.a},
+            .tex_coord = {0, 0}
+        };
+
+        // Outer vertex (opaque)
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {center.x + outer_radius * cos_a, center.y + outer_radius * sin_a},
+            .color = {color.r, color.g, color.b, color.a},
+            .tex_coord = {0, 0}
+        };
+
+        // Outer feather vertex (transparent)
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {center.x + outer_feather_radius * cos_a, center.y + outer_feather_radius * sin_a},
+            .color = {color.r, color.g, color.b, 0},  // Transparent
+            .tex_coord = {0, 0}
+        };
+    }
+
+    // Generate indices for connected triangles with feathering
     for (int i = 0; i < segments; i++) {
-        float a1 = start_angle + i * angle_step;
-        float a2 = start_angle + (i + 1) * angle_step;
+        size_t v = base_vertex + i * 4;
 
-        float inner_radius = radius - thickness * 0.5f;
-        float outer_radius = radius + thickness * 0.5f;
+        // Inner feather strip (2 triangles)
+        gb->indices[gb->index_count++] = v + 0;  // inner feather left
+        gb->indices[gb->index_count++] = v + 1;  // inner left
+        gb->indices[gb->index_count++] = v + 5;  // inner right
 
-        V2 inner1 = {center.x + inner_radius * cosf(a1), center.y + inner_radius * sinf(a1)};
-        V2 outer1 = {center.x + outer_radius * cosf(a1), center.y + outer_radius * sinf(a1)};
-        V2 inner2 = {center.x + inner_radius * cosf(a2), center.y + inner_radius * sinf(a2)};
-        V2 outer2 = {center.x + outer_radius * cosf(a2), center.y + outer_radius * sinf(a2)};
+        gb->indices[gb->index_count++] = v + 0;  // inner feather left
+        gb->indices[gb->index_count++] = v + 5;  // inner right
+        gb->indices[gb->index_count++] = v + 4;  // inner feather right
 
-        // Add quad for this segment
-        geometry_buffer_ensure_capacity(gb, 4, 6);
-        size_t base_vertex = gb->vertex_count;
+        // Main strip (2 triangles)
+        gb->indices[gb->index_count++] = v + 1;  // inner left
+        gb->indices[gb->index_count++] = v + 2;  // outer left
+        gb->indices[gb->index_count++] = v + 6;  // outer right
 
-        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
-            .position = {inner1.x, inner1.y},
-            .color = {color.r, color.g, color.b, color.a},
-            .tex_coord = {0, 0}
-        };
-        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
-            .position = {outer1.x, outer1.y},
-            .color = {color.r, color.g, color.b, color.a},
-            .tex_coord = {0, 0}
-        };
-        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
-            .position = {outer2.x, outer2.y},
-            .color = {color.r, color.g, color.b, color.a},
-            .tex_coord = {0, 0}
-        };
-        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
-            .position = {inner2.x, inner2.y},
-            .color = {color.r, color.g, color.b, color.a},
-            .tex_coord = {0, 0}
-        };
+        gb->indices[gb->index_count++] = v + 1;  // inner left
+        gb->indices[gb->index_count++] = v + 6;  // outer right
+        gb->indices[gb->index_count++] = v + 5;  // inner right
 
-        gb->indices[gb->index_count++] = base_vertex + 0;
-        gb->indices[gb->index_count++] = base_vertex + 1;
-        gb->indices[gb->index_count++] = base_vertex + 2;
+        // Outer feather strip (2 triangles)
+        gb->indices[gb->index_count++] = v + 2;  // outer left
+        gb->indices[gb->index_count++] = v + 3;  // outer feather left
+        gb->indices[gb->index_count++] = v + 7;  // outer feather right
 
-        gb->indices[gb->index_count++] = base_vertex + 0;
-        gb->indices[gb->index_count++] = base_vertex + 2;
-        gb->indices[gb->index_count++] = base_vertex + 3;
+        gb->indices[gb->index_count++] = v + 2;  // outer left
+        gb->indices[gb->index_count++] = v + 7;  // outer feather right
+        gb->indices[gb->index_count++] = v + 6;  // outer right
     }
 }
 
@@ -616,6 +703,7 @@ void render_context_init(RenderContext* ctx, SDL_Renderer* renderer) {
                                            SDL_TEXTUREACCESS_STATIC, 1, 1);
     Uint32 white_pixel = 0xFFFFFFFF;
     SDL_UpdateTexture(ctx->white_texture, NULL, &white_pixel, 4);
+    SDL_SetTextureBlendMode(ctx->white_texture, SDL_BLENDMODE_BLEND);
 
     // Initialize label array
     ctx->labels.capacity = 256;
@@ -1038,7 +1126,7 @@ void render_text_input_field(Atelier* atelier, char* text, size_t max_len, V2 po
     }
 }
 
-// Draw a wavy line between two points using connected quads
+// Draw a wavy line between two points using connected quads with edge feathering
 void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thickness, float amplitude, float wavelength, SDL_Color color, bool inverted, bool half_period) {
     V2 dir = v2_sub(p2, p1);
     float length = v2_length(dir);
@@ -1046,7 +1134,11 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
 
     dir = v2_scale(dir, 1.0f / length);
     V2 perp = {-dir.y, dir.x};  // Perpendicular direction
-    V2 thickness_perp = v2_scale(perp, thickness * 0.5f);
+
+    // Add feathering edges for anti-aliasing
+    float feather_width = 1.0f;  // 1 pixel feather on each side
+    V2 inner_thickness_perp = v2_scale(perp, thickness * 0.5f);
+    V2 outer_thickness_perp = v2_scale(perp, (thickness * 0.5f + feather_width));
 
     // Calculate number of complete wavelengths that fit
     float num_waves = length / wavelength;
@@ -1070,14 +1162,15 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
     if (segments < 16) segments = 16;  // Minimum 16 segments for smoothness
 
     // Ensure we have capacity for all vertices and indices
-    int vertex_count = (segments + 1) * 2;  // Two vertices per point (top and bottom)
-    int index_count = segments * 6;  // Two triangles per segment
+    // 4 vertices per point (outer top, inner top, inner bottom, outer bottom)
+    int vertex_count = (segments + 1) * 4;
+    int index_count = segments * 18;  // 6 triangles per segment (2 main + 4 feathered edges)
     geometry_buffer_ensure_capacity(gb, vertex_count, index_count);
 
     size_t base_vertex = gb->vertex_count;
     float phase_offset = !inverted ? M_PI : 0.0f;  // Inverted logic - false means π offset
 
-    // Generate all vertices for the wave strip
+    // Generate all vertices for the wave strip with feathering
     for (int i = 0; i <= segments; i++) {
         float t = (float)i / segments;
 
@@ -1091,43 +1184,79 @@ void geometry_buffer_add_wave_line(GeometryBuffer* gb, V2 p1, V2 p2, float thick
         // Apply wave offset
         V2 wave_center = v2_add(base, v2_scale(perp, offset));
 
-        // Add top and bottom vertices
-        V2 top = v2_add(wave_center, thickness_perp);
-        V2 bottom = v2_sub(wave_center, thickness_perp);
+        // Calculate 4 vertices: outer bottom, inner bottom, inner top, outer top
+        V2 outer_top = v2_add(wave_center, outer_thickness_perp);
+        V2 inner_top = v2_add(wave_center, inner_thickness_perp);
+        V2 inner_bottom = v2_sub(wave_center, inner_thickness_perp);
+        V2 outer_bottom = v2_sub(wave_center, outer_thickness_perp);
 
+        // Outer bottom (transparent)
         gb->vertices[gb->vertex_count++] = (SDL_Vertex){
-            .position = {bottom.x, bottom.y},
+            .position = {outer_bottom.x, outer_bottom.y},
+            .color = {color.r, color.g, color.b, 0},  // Transparent
+            .tex_coord = {0, 0}
+        };
+
+        // Inner bottom (opaque)
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {inner_bottom.x, inner_bottom.y},
             .color = {color.r, color.g, color.b, color.a},
             .tex_coord = {0, 0}
         };
+
+        // Inner top (opaque)
         gb->vertices[gb->vertex_count++] = (SDL_Vertex){
-            .position = {top.x, top.y},
+            .position = {inner_top.x, inner_top.y},
             .color = {color.r, color.g, color.b, color.a},
+            .tex_coord = {0, 0}
+        };
+
+        // Outer top (transparent)
+        gb->vertices[gb->vertex_count++] = (SDL_Vertex){
+            .position = {outer_top.x, outer_top.y},
+            .color = {color.r, color.g, color.b, 0},  // Transparent
             .tex_coord = {0, 0}
         };
     }
 
-    // Generate indices for connected triangles
+    // Generate indices for connected triangles with feathering
     for (int i = 0; i < segments; i++) {
-        size_t v = base_vertex + i * 2;
+        size_t v = base_vertex + i * 4;
 
-        // First triangle: bottom-left, top-left, top-right
-        gb->indices[gb->index_count++] = v + 0;
-        gb->indices[gb->index_count++] = v + 1;
-        gb->indices[gb->index_count++] = v + 3;
+        // Bottom feather strip (2 triangles)
+        gb->indices[gb->index_count++] = v + 0;  // outer bottom left
+        gb->indices[gb->index_count++] = v + 1;  // inner bottom left
+        gb->indices[gb->index_count++] = v + 5;  // inner bottom right
 
-        // Second triangle: bottom-left, top-right, bottom-right
-        gb->indices[gb->index_count++] = v + 0;
-        gb->indices[gb->index_count++] = v + 3;
-        gb->indices[gb->index_count++] = v + 2;
+        gb->indices[gb->index_count++] = v + 0;  // outer bottom left
+        gb->indices[gb->index_count++] = v + 5;  // inner bottom right
+        gb->indices[gb->index_count++] = v + 4;  // outer bottom right
+
+        // Main center strip (2 triangles)
+        gb->indices[gb->index_count++] = v + 1;  // inner bottom left
+        gb->indices[gb->index_count++] = v + 2;  // inner top left
+        gb->indices[gb->index_count++] = v + 6;  // inner top right
+
+        gb->indices[gb->index_count++] = v + 1;  // inner bottom left
+        gb->indices[gb->index_count++] = v + 6;  // inner top right
+        gb->indices[gb->index_count++] = v + 5;  // inner bottom right
+
+        // Top feather strip (2 triangles)
+        gb->indices[gb->index_count++] = v + 2;  // inner top left
+        gb->indices[gb->index_count++] = v + 3;  // outer top left
+        gb->indices[gb->index_count++] = v + 7;  // outer top right
+
+        gb->indices[gb->index_count++] = v + 2;  // inner top left
+        gb->indices[gb->index_count++] = v + 7;  // outer top right
+        gb->indices[gb->index_count++] = v + 6;  // inner top right
     }
 }
 
 // Draw wave rectangle with geometry buffer
 void render_wave_rect_geometry(GeometryBuffer* gb, float x, float y, float w, float h, SDL_Color color, Camera* camera, int wavelength_scale, bool inverted, bool half_period, int edge_flags) {
-    float thickness = 4.0f;
-    float amplitude = thickness;  // Amplitude is 3x thickness
-    float wavelength = thickness * 4.0f * (1 << wavelength_scale);  // Wavelength is 8x thickness * 2^scale
+    float thickness = 2.0f;
+    float amplitude = thickness * 2.0;  // Amplitude is 3x thickness
+    float wavelength = thickness * 8.0f * (1 << wavelength_scale);  // Wavelength is 8x thickness * 2^scale
 
     // Convert world coordinates to screen
     V2 tl = world_to_screen((V2){x, y}, camera);
@@ -2366,6 +2495,8 @@ void render(Atelier* atelier) {
     SDL_SetRenderDrawColor(atelier->renderer, 30, 30, 30, 255);
     SDL_RenderClear(atelier->renderer);
 
+    // Enable high quality scaling for better anti-aliasing
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
     render_viewport(atelier);
 
     // Render UI panel on the right
@@ -2456,6 +2587,9 @@ int main(int argc, char* argv[]) {
         SDL_Quit();
         return 1;
     }
+
+    // Enable blend mode for smoother edges
+    SDL_SetRenderDrawBlendMode(atelier.renderer, SDL_BLENDMODE_BLEND);
 
     // Initialize render context
     render_context_init(&atelier.render_ctx, atelier.renderer);
