@@ -1840,9 +1840,9 @@ bool work_load(Work* work, const char* filename) {
                 sscanf(trimmed + 13, "%d", (int*)&temp_band.label_anchor);
             } else if (strncmp(trimmed, "label_offset:", 13) == 0) {
                 sscanf(trimmed + 13, "%f %f", &temp_band.label_offset.x, &temp_band.label_offset.y);
-            } else if (strncmp(trimmed, "label_fixed:", 14) == 0) {
+            } else if (strncmp(trimmed, "label_fixed:", 12) == 0) {
                 char bool_str[16];
-                sscanf(trimmed + 14, "%15s", bool_str);
+                sscanf(trimmed + 12, "%15s", bool_str);
                 temp_band.label_fixed = (strcmp(bool_str, "true") == 0);
             }
         }
