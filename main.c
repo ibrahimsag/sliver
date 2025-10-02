@@ -146,6 +146,7 @@ typedef struct {
     V2 label_offset;  // Additional offset from anchor position
     bool label_fixed;  // If true, label uses LABEL_TOP_LEFT alignment, otherwise opposite alignment
     bool highlight;  // If true on any band, dims all other bands (-0.3 lightness, 0 chroma)
+    bool hide;  // If true, band is not rendered
 } Band;
 
 typedef struct {
@@ -1552,7 +1553,8 @@ void add_random_band(Atelier* atelier) {
         .wave_half_period = false,
         .follow_previous = false,
         .label_fixed = false,
-        .highlight = false
+        .highlight = false,
+        .hide = false
     };
     snprintf(new_band.label, 32, "%c", 'A' + (char)(atelier->work->bands.length % 26));
 
@@ -1583,7 +1585,8 @@ void add_open_band(Atelier* atelier) {
         .label_anchor = LABEL_TOP_LEFT,  // Default label anchor
         .label_offset = {0, 0},  // No offset
         .label_fixed = false,
-        .highlight = false
+        .highlight = false,
+        .hide = false
     };
     snprintf(new_band.label, 32, "%c", 'A' + (char)(atelier->work->bands.length % 26));
 
@@ -1731,6 +1734,7 @@ void work_save(Work* work, const char* filename, StringBuilder* sb) {
         string_append(sb, "  label_offset: %f %f\n", band->label_offset.x, band->label_offset.y);
         string_append(sb, "  label_fixed: %s\n", band->label_fixed ? "true" : "false");
         string_append(sb, "  highlight: %s\n", band->highlight ? "true" : "false");
+        string_append(sb, "  hide: %s\n", band->hide ? "true" : "false");
         string_append(sb, "}\n");
     }
 
@@ -1852,6 +1856,10 @@ bool work_load(Work* work, const char* filename) {
                 char bool_str[16];
                 sscanf(trimmed + 10, "%15s", bool_str);
                 temp_band.highlight = (strcmp(bool_str, "true") == 0);
+            } else if (strncmp(trimmed, "hide:", 5) == 0) {
+                char bool_str[16];
+                sscanf(trimmed + 5, "%15s", bool_str);
+                temp_band.hide = (strcmp(bool_str, "true") == 0);
             }
         }
     }
@@ -2073,8 +2081,15 @@ Layout render_lens(Atelier* atelier, Layout layout) {
             band->highlight = !band->highlight;
         }
 
+        // Hide toggle button (V for visible / v for hidden)
+        V2 hide_pos = {layout.next.x + 90, layout.next.y};
+        V2 hide_size = {25, 20};
+        if (render_button(atelier, band->hide ? "v" : "V", hide_pos, hide_size, HIGHLIGHTED(band->hide))) {
+            band->hide = !band->hide;
+        }
+
         // Label input field next to band number
-        V2 label_pos = {layout.next.x + 100, layout.next.y};
+        V2 label_pos = {layout.next.x + 125, layout.next.y};
         V2 label_size = {120, 20};
         render_text_input_field(atelier, band->label, 32, label_pos, label_size);
         advance_vertical(&layout, 25);
@@ -2416,6 +2431,9 @@ void render_work(Atelier* atelier) {
     // Draw bands along diagonal
     for (size_t i = 0; i < atelier->work->bands.length; i++) {
         Band* band = &atelier->work->bands.ptr[i];
+
+        // Skip hidden bands
+        if (band->hide) continue;
 
         if (band->kind == BAND_OPEN) {
             Interval transformed = sliver_transform_interval(band->interval, &atelier->sliver_camera);

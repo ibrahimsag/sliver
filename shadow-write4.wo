@@ -15,6 +15,8 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: 0.000000 0.000000
   label_fixed: false
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -32,6 +34,8 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: -8.000000 27.000000
   label_fixed: false
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -49,6 +53,8 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: -7.000000 15.500000
   label_fixed: false
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -66,6 +72,8 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: -10.500000 18.500000
   label_fixed: false
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -83,6 +91,8 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: 0.000000 -2.000000
   label_fixed: false
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -100,6 +110,8 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: 0.000000 0.000000
   label_fixed: false
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -117,6 +129,8 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: -14.000000 22.500000
   label_fixed: false
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -134,6 +148,8 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: 0.000000 0.000000
   label_fixed: false
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -151,6 +167,8 @@ WORK SLIVER 0001
   label_anchor: 2
   label_offset: 0.000000 0.000000
   label_fixed: true
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -168,6 +186,8 @@ WORK SLIVER 0001
   label_anchor: 2
   label_offset: 0.000000 0.000000
   label_fixed: true
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -185,6 +205,8 @@ WORK SLIVER 0001
   label_anchor: 2
   label_offset: 0.000000 0.000000
   label_fixed: true
+  highlight: false
+  hide: false
 }
 {
   type: band
@@ -202,10 +224,12 @@ WORK SLIVER 0001
   label_anchor: 2
   label_offset: 0.000000 0.000000
   label_fixed: true
+  highlight: false
+  hide: false
 }
 {
   type: band
-  interval: 0.500000 9.200000
+  interval: 0.068000 9.200000
   stride: 1.000000
   repeat: 0
   kind: CLOSED
@@ -219,10 +243,12 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: 0.000000 0.000000
   label_fixed: false
+  highlight: false
+  hide: true
 }
 {
   type: band
-  interval: 0.919999 6.596004
+  interval: 0.127999 6.596004
   stride: 1.000000
   repeat: 0
   kind: CLOSED
@@ -236,10 +262,12 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: 0.000000 0.000000
   label_fixed: false
+  highlight: false
+  hide: true
 }
 {
   type: band
-  interval: 3.447997 12.007992
+  interval: 3.160000 12.007995
   stride: 1.000000
   repeat: 0
   kind: CLOSED
@@ -253,10 +281,12 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: 0.000000 0.000000
   label_fixed: false
+  highlight: false
+  hide: true
 }
 {
   type: band
-  interval: 6.463992 11.567983
+  interval: 6.540000 11.931992
   stride: 1.000000
   repeat: 0
   kind: CLOSED
@@ -270,4 +300,6 @@ WORK SLIVER 0001
   label_anchor: 0
   label_offset: 0.000000 0.000000
   label_fixed: false
+  highlight: false
+  hide: true
 }
