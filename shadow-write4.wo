@@ -1,0 +1,273 @@
+WORK SLIVER 0001
+{
+  type: band
+  interval: 0.500000 3.490000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 113.000000 0.700000 0.270000
+  label: "Data v0"
+  wavelength_scale: 4
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 3.490000 4.480000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 113.000000 0.700000 0.270000
+  label: "Data v0.5"
+  wavelength_scale: 2
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: true
+  label_anchor: 0
+  label_offset: -8.000000 27.000000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 4.480000 9.208000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 113.000000 0.700000 0.270000
+  label: "Data v1"
+  wavelength_scale: 5
+  wave_inverted: true
+  wave_half_period: false
+  follow_previous: true
+  label_anchor: 0
+  label_offset: -7.000000 15.500000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 9.208000 12.630000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 113.000000 0.700000 0.270000
+  label: "Data v2"
+  wavelength_scale: 4
+  wave_inverted: true
+  wave_half_period: false
+  follow_previous: true
+  label_anchor: 0
+  label_offset: -10.500000 18.500000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 0.110000 3.154000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 222.000000 0.700000 0.290000
+  label: "read a + write a"
+  wavelength_scale: 3
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 -2.000000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 3.154000 6.540000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 224.000000 0.700000 0.290000
+  label: "read a + write a + write b"
+  wavelength_scale: 2
+  wave_inverted: true
+  wave_half_period: true
+  follow_previous: true
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 6.540000 8.950000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 221.000000 0.700000 0.290000
+  label: "read b + write a + write b"
+  wavelength_scale: 2
+  wave_inverted: true
+  wave_half_period: true
+  follow_previous: true
+  label_anchor: 0
+  label_offset: -14.000000 22.500000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 8.950000 12.006001
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: WAVE
+  color: 221.000000 0.700000 0.290000
+  label: "read b + write b"
+  wavelength_scale: 2
+  wave_inverted: true
+  wave_half_period: true
+  follow_previous: true
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 2.690000 2.690000
+  stride: 1.000000
+  repeat: 0
+  kind: OPEN
+  line_kind: DOUBLE
+  color: 176.000000 0.590000 0.010000
+  label: "Release 1"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 2
+  label_offset: 0.000000 0.000000
+  label_fixed: true
+}
+{
+  type: band
+  interval: 6.076000 6.076000
+  stride: 1.000000
+  repeat: 0
+  kind: OPEN
+  line_kind: SHARP
+  color: 306.000000 0.610000 0.010000
+  label: "Release 2"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 2
+  label_offset: 0.000000 0.000000
+  label_fixed: true
+}
+{
+  type: band
+  interval: 4.300000 4.300000
+  stride: 1.000000
+  repeat: 0
+  kind: OPEN
+  line_kind: SHARP
+  color: 136.000000 0.424000 0.250000
+  label: "Backfill"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 2
+  label_offset: 0.000000 0.000000
+  label_fixed: true
+}
+{
+  type: band
+  interval: 8.220000 8.220000
+  stride: 1.000000
+  repeat: 0
+  kind: OPEN
+  line_kind: SHARP
+  color: 269.000000 0.700000 0.280000
+  label: "Release 3"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 2
+  label_offset: 0.000000 0.000000
+  label_fixed: true
+}
+{
+  type: band
+  interval: 0.500000 9.200000
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: SHARP
+  color: 300.000000 0.700000 0.208000
+  label: "write A"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 0.919999 6.596004
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: SHARP
+  color: 300.000000 0.700000 0.208000
+  label: "read A"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 3.447997 12.007992
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: SHARP
+  color: 38.000000 0.700000 0.208000
+  label: "write B"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+  label_fixed: false
+}
+{
+  type: band
+  interval: 6.463992 11.567983
+  stride: 1.000000
+  repeat: 0
+  kind: CLOSED
+  line_kind: SHARP
+  color: 38.000000 0.700000 0.208000
+  label: "read B"
+  wavelength_scale: 1
+  wave_inverted: false
+  wave_half_period: false
+  follow_previous: false
+  label_anchor: 0
+  label_offset: 0.000000 0.000000
+  label_fixed: false
+}
