@@ -145,6 +145,7 @@ typedef struct {
     LabelAnchor label_anchor;  // Anchor position for label (9 positions in 3x3 grid)
     V2 label_offset;  // Additional offset from anchor position
     bool label_fixed;  // If true, label uses LABEL_TOP_LEFT alignment, otherwise opposite alignment
+    bool highlight;  // If true on any band, dims all other bands (-0.3 lightness, 0 chroma)
 } Band;
 
 typedef struct {
@@ -1550,7 +1551,8 @@ void add_random_band(Atelier* atelier) {
         .label_offset = {0, 0},  // No offset
         .wave_half_period = false,
         .follow_previous = false,
-        .label_fixed = false
+        .label_fixed = false,
+        .highlight = false
     };
     snprintf(new_band.label, 32, "%c", 'A' + (char)(atelier->work->bands.length % 26));
 
@@ -1580,7 +1582,8 @@ void add_open_band(Atelier* atelier) {
         .follow_previous = false,
         .label_anchor = LABEL_TOP_LEFT,  // Default label anchor
         .label_offset = {0, 0},  // No offset
-        .label_fixed = false
+        .label_fixed = false,
+        .highlight = false
     };
     snprintf(new_band.label, 32, "%c", 'A' + (char)(atelier->work->bands.length % 26));
 
@@ -1727,6 +1730,7 @@ void work_save(Work* work, const char* filename, StringBuilder* sb) {
         string_append(sb, "  label_anchor: %d\n", band->label_anchor);
         string_append(sb, "  label_offset: %f %f\n", band->label_offset.x, band->label_offset.y);
         string_append(sb, "  label_fixed: %s\n", band->label_fixed ? "true" : "false");
+        string_append(sb, "  highlight: %s\n", band->highlight ? "true" : "false");
         string_append(sb, "}\n");
     }
 
@@ -1844,6 +1848,10 @@ bool work_load(Work* work, const char* filename) {
                 char bool_str[16];
                 sscanf(trimmed + 12, "%15s", bool_str);
                 temp_band.label_fixed = (strcmp(bool_str, "true") == 0);
+            } else if (strncmp(trimmed, "highlight:", 10) == 0) {
+                char bool_str[16];
+                sscanf(trimmed + 10, "%15s", bool_str);
+                temp_band.highlight = (strcmp(bool_str, "true") == 0);
             }
         }
     }
@@ -2057,6 +2065,13 @@ Layout render_lens(Atelier* atelier, Layout layout) {
         snprintf(buffer, sizeof(buffer), "    %zu:", i + 1);
         SDL_Color band_color = color_oklch_to_sdl(band->color);
         render_text(atelier, buffer, layout.next, band_color);
+
+        // Highlight toggle button (H/h)
+        V2 highlight_pos = {layout.next.x + 60, layout.next.y};
+        V2 highlight_size = {25, 20};
+        if (render_button(atelier, band->highlight ? "H" : "h", highlight_pos, highlight_size, HIGHLIGHTED(band->highlight))) {
+            band->highlight = !band->highlight;
+        }
 
         // Label input field next to band number
         V2 label_pos = {layout.next.x + 100, layout.next.y};
@@ -2310,7 +2325,7 @@ void render_ui_panel(Atelier* atelier) {
     }
 }
 
-void render_band_geometry(Atelier* atelier, Band* band, Interval transformed, int edge_flags) {
+void render_band_geometry(Atelier* atelier, Band* band, Interval transformed, int edge_flags, bool has_highlight) {
     // Clamp to visible range [0, 1]
     transformed.start = fmaxf(0.0f, fminf(1.0f, transformed.start));
     transformed.end = fmaxf(0.0f, fminf(1.0f, transformed.end));
@@ -2325,8 +2340,15 @@ void render_band_geometry(Atelier* atelier, Band* band, Interval transformed, in
     float min_y = fminf(p1.y, p2.y);
     float max_y = fmaxf(p1.y, p2.y);
 
+    // Apply dimming if any band is highlighted and this band is not
+    ColorOKLCH adjusted_color = band->color;
+    if (has_highlight && !band->highlight) {
+        adjusted_color.L = fmaxf(0.0f, adjusted_color.L - 0.3f);  // Reduce lightness
+        adjusted_color.C = 0.0f;  // Remove chroma (make grayscale)
+    }
+
     // Convert LCH to SDL_Color for rendering
-    SDL_Color sdl_color = color_oklch_to_sdl(band->color);
+    SDL_Color sdl_color = color_oklch_to_sdl(adjusted_color);
 
     switch (band->line_kind) {
         case KIND_ROUNDED: {
@@ -2382,6 +2404,15 @@ void render_work(Atelier* atelier) {
     // Clear label array
     atelier->render_ctx.labels.length = 0;
 
+    // Check if any band has highlight enabled
+    bool has_highlight = false;
+    for (size_t i = 0; i < atelier->work->bands.length; i++) {
+        if (atelier->work->bands.ptr[i].highlight) {
+            has_highlight = true;
+            break;
+        }
+    }
+
     // Draw bands along diagonal
     for (size_t i = 0; i < atelier->work->bands.length; i++) {
         Band* band = &atelier->work->bands.ptr[i];
@@ -2392,14 +2423,14 @@ void render_work(Atelier* atelier) {
                 Interval extended = {-2.0f, transformed.end};
                 int edge_flags = calculate_edge_flags(atelier, extended.start, extended.end);
                 if (edge_flags != 0) {
-                    render_band_geometry(atelier, band, extended, edge_flags);
+                    render_band_geometry(atelier, band, extended, edge_flags, has_highlight);
                 }
             }
             {
                 Interval extended = {transformed.start, 2.0f};
                 int edge_flags = calculate_edge_flags(atelier, extended.start, extended.end);
                 if (edge_flags != 0) {
-                    render_band_geometry(atelier, band, extended, edge_flags);
+                    render_band_geometry(atelier, band, extended, edge_flags, has_highlight);
                 }
             }
         } else {
@@ -2421,7 +2452,7 @@ void render_work(Atelier* atelier) {
                 }
 
                 // Draw band geometry
-                render_band_geometry(atelier, band, transformed, edge_flags);
+                render_band_geometry(atelier, band, transformed, edge_flags, has_highlight);
             }
         }
     }
