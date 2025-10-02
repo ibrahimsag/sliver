@@ -2080,6 +2080,19 @@ Layout render_lens(Atelier* atelier, Layout layout) {
             break;  // Exit loop since array has changed
         }
 
+        // Add join button (J) before remove button - joins this band with previous
+        if (i > 0) {  // Only show join button if there's a previous band
+            V2 join_pos = {WINDOW_WIDTH - 80, layout.next.y};
+            V2 join_size = {25, 22};
+            if (render_button(atelier, "J", join_pos, join_size, INPUT_NONE)) {
+                // Set previous band's end to this band's end
+                atelier->work->bands.ptr[i-1].interval.end = band->interval.end;
+                // Remove current band
+                band_array_remove(&atelier->work->bands, i);
+                break;  // Exit loop since array has changed
+            }
+        }
+
         // Add remove button (X) at the right side
         V2 remove_pos = {WINDOW_WIDTH - 50, layout.next.y};
         V2 remove_size = {25, 22};

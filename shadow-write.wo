@@ -14,6 +14,7 @@ WORK SLIVER 0001
   follow_previous: false
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
 {
   type: band
@@ -30,6 +31,7 @@ WORK SLIVER 0001
   follow_previous: true
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
 {
   type: band
@@ -46,6 +48,7 @@ WORK SLIVER 0001
   follow_previous: true
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
 {
   type: band
@@ -61,7 +64,8 @@ WORK SLIVER 0001
   wave_half_period: false
   follow_previous: true
   label_anchor: 0
-  label_offset: 0.000000 0.000000
+  label_offset: -10.500000 18.500000
+  label_fixed: false
 }
 {
   type: band
@@ -78,6 +82,7 @@ WORK SLIVER 0001
   follow_previous: false
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
 {
   type: band
@@ -94,6 +99,7 @@ WORK SLIVER 0001
   follow_previous: true
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
 {
   type: band
@@ -110,6 +116,7 @@ WORK SLIVER 0001
   follow_previous: true
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
 {
   type: band
@@ -126,6 +133,7 @@ WORK SLIVER 0001
   follow_previous: true
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
 {
   type: band
@@ -142,6 +150,7 @@ WORK SLIVER 0001
   follow_previous: false
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
 {
   type: band
@@ -158,6 +167,7 @@ WORK SLIVER 0001
   follow_previous: false
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
 {
   type: band
@@ -174,6 +184,7 @@ WORK SLIVER 0001
   follow_previous: false
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
 {
   type: band
@@ -190,4 +201,5 @@ WORK SLIVER 0001
   follow_previous: false
   label_anchor: 0
   label_offset: 0.000000 0.000000
+  label_fixed: false
 }
