@@ -2074,24 +2074,24 @@ Layout render_lens(Atelier* atelier, Layout layout) {
         SDL_Color band_color = color_oklch_to_sdl(band->color);
         render_text(atelier, buffer, layout.next, band_color);
 
+        // Label input field next to band number
+        V2 label_pos = {layout.next.x + 100, layout.next.y};
+        V2 label_size = {120, 20};
+        render_text_input_field(atelier, band->label, 32, label_pos, label_size);
+
         // Highlight toggle button (H/h)
-        V2 highlight_pos = {layout.next.x + 60, layout.next.y};
+        V2 highlight_pos = {layout.next.x + label_size.x + 100, layout.next.y};
         V2 highlight_size = {25, 20};
         if (render_button(atelier, band->highlight ? "H" : "h", highlight_pos, highlight_size, HIGHLIGHTED(band->highlight))) {
             band->highlight = !band->highlight;
         }
 
         // Hide toggle button (V for visible / v for hidden)
-        V2 hide_pos = {layout.next.x + 90, layout.next.y};
+        V2 hide_pos = {layout.next.x + label_size.x + 125, layout.next.y};
         V2 hide_size = {25, 20};
         if (render_button(atelier, band->hide ? "v" : "V", hide_pos, hide_size, HIGHLIGHTED(band->hide))) {
             band->hide = !band->hide;
         }
-
-        // Label input field next to band number
-        V2 label_pos = {layout.next.x + 125, layout.next.y};
-        V2 label_size = {120, 20};
-        render_text_input_field(atelier, band->label, 32, label_pos, label_size);
         advance_vertical(&layout, 25);
 
         // Add split button (S) near the right side
